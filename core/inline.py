@@ -133,7 +133,7 @@ def attach():
 
     @bot.on(events.InlineQuery)
     async def on_inline(e):
-        q = e.query.strip().lower()
+        q = e.text.strip().lower()
         if q in ("menu", "help"):
             result = e.builder.article(
                 title="Bantuan Userbot", text=build_help_text(), buttons=_buttons()
