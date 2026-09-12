@@ -5,7 +5,7 @@ dan tombol STOP untuk .gcast/.jgc. Jika tidak, semuanya jatuh ke mode teks biasa
 """
 from telethon import events
 
-from core import config
+from core import config, notify
 from core.state import state
 
 HELP = {
@@ -134,6 +134,7 @@ def attach():
     @bot.on(events.InlineQuery)
     async def on_inline(e):
         q = e.text.strip().lower()
+        print(f"[INLINE] query diterima: '{q}'")
         if q in ("menu", "help"):
             result = e.builder.article(
                 title="Bantuan Userbot", text=build_help_text(), buttons=_buttons()
@@ -193,10 +194,13 @@ async def send_menu(chat_id):
             _bot_username = me.username
         results = await client.inline_query(_bot_username, "menu")
         if not results:
+            print("[INLINE] query 'menu' menghasilkan 0 result")
             return False
         await results[0].click(chat_id)
         return True
-    except Exception:
+    except Exception as e:
+        print(f"[INLINE] send_menu gagal: {type(e).__name__}: {e}")
+        await notify.log(f"send_menu error: {type(e).__name__}: {e}", "ERROR")
         return False
 
 
@@ -216,5 +220,6 @@ async def send_stop_panel(chat_id, task):
             return False
         await results[0].click(chat_id)
         return True
-    except Exception:
+    except Exception as e:
+        print(f"[INLINE] send_stop_panel gagal: {type(e).__name__}: {e}")
         return False
