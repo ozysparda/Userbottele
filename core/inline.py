@@ -133,6 +133,9 @@ def attach():
 
     @bot.on(events.InlineQuery)
     async def on_inline(e):
+        if state.owner_id and e.query.user_id != state.owner_id:
+            await e.answer([], cache_time=0)
+            return
         q = e.text.strip().lower()
         print(f"[INLINE] query diterima: '{q}'")
         if q in ("menu", "help"):
@@ -157,6 +160,10 @@ def attach():
 
     @bot.on(events.CallbackQuery)
     async def on_callback(e):
+        owner_id = state.owner_id
+        if owner_id and e.query.user_id != owner_id:
+            await e.answer("⛔ Hanya owner yang bisa.", alert=True)
+            return
         if not e.data:
             return
         data = e.data.decode(errors="ignore")
