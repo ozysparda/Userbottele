@@ -1,0 +1,18 @@
+services:
+  - type: worker
+    name: userbottele
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python UserBot.py
+    plan: free
+    envVars:
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: STRING_SESSION
+        sync: false
+      - key: OWNER_ID
+        sync: false

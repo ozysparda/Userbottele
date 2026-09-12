@@ -91,6 +91,22 @@ def _run_checks():
     print(f"[OK] Semua {len(inline.HELP)} kategori & modul dimuat. Config valid. Versi {config.VERSION}")
 
 
+async def _generate_string_session():
+    print(BANNER)
+    print("Mode: buat STRING_SESSION untuk deploy (Telegram akan minta kode OTP).")
+    client = TelegramClient(
+        StringSession(), config.API_ID, config.API_HASH, flood_sleep_threshold=10
+    )
+    if not (await _interactive_login(client)):
+        sys.exit(1)
+    me = await client.get_me()
+    print(f"[OK] Login sebagai: {me.first_name} (ID: {me.id})")
+    print("\n[OK] STRING_SESSION kamu (RAHASIA, jangan dibagikan):\n")
+    print(client.session.save())
+    print("\n[!] Masukkan ke env var STRING_SESSION di platform deploy, lalu jalankan UserBot.py.")
+    await client.disconnect()
+
+
 async def _main():
     print(BANNER)
     print(f"Userbottele v{config.VERSION} — memuat modul...")
@@ -123,6 +139,9 @@ async def _main():
 
 
 def main():
+    if "--string-session" in sys.argv:
+        asyncio.run(_generate_string_session())
+        return
     if "--check" in sys.argv:
         _run_checks()
         return
