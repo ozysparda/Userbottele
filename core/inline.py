@@ -3,7 +3,7 @@
 Jika BOT_TOKEN dikonfigurasi, userbot bisa menampilkan menu .help interaktif
 dan tombol STOP untuk .gcast/.jgc. Jika tidak, semuanya jatuh ke mode teks biasa.
 """
-from telethon import events
+from telethon import Button, events
 
 from core import config, notify
 from core.state import state
@@ -107,19 +107,19 @@ def build_help_text(category=None):
 
 def _buttons(category=None):
     if category:
-        return [[{"text": "🔙 Kembali", "data": b"help:root"}]]
+        return [[Button.inline("🔙 Kembali", "help:root")]]
     return [
         [
-            {"text": "📣 Promo", "data": b"help:promo"},
-            {"text": "🛡️ Admin", "data": b"help:admin"},
+            Button.inline("📣 Promo", "help:promo"),
+            Button.inline("🛡️ Admin", "help:admin"),
         ],
         [
-            {"text": "🤖 Automasi", "data": b"help:automation"},
-            {"text": "💾 Media", "data": b"help:media"},
+            Button.inline("🤖 Automasi", "help:automation"),
+            Button.inline("💾 Media", "help:media"),
         ],
         [
-            {"text": "✨ AI", "data": b"help:ai"},
-            {"text": "📊 Info", "data": b"help:info"},
+            Button.inline("✨ AI", "help:ai"),
+            Button.inline("📊 Info", "help:info"),
         ],
     ]
 
@@ -137,13 +137,19 @@ def attach():
         print(f"[INLINE] query diterima: '{q}'")
         if q in ("menu", "help"):
             result = e.builder.article(
-                title="Bantuan Userbot", text=build_help_text(), buttons=_buttons()
+                title="Bantuan Userbot",
+                text=build_help_text(),
+                buttons=_buttons(),
+                parse_mode="md",
             )
             await e.answer([result], cache_time=0)
         elif q.startswith("stop:"):
             task = q.split(":", 1)[1] if ":" in q else "gcast"
             result = e.builder.article(
-                title="Stop", text="Proses berjalan...", buttons=[[stop_button(task)]]
+                title="Stop",
+                text="Proses berjalan...",
+                buttons=[[stop_button(task)]],
+                parse_mode="md",
             )
             await e.answer([result], cache_time=0)
         else:
@@ -178,7 +184,7 @@ def attach():
 
 
 def stop_button(task):
-    return {"text": "⛔ STOP", "data": f"stop:{task}".encode()}
+    return Button.inline("⛔ STOP", f"stop:{task}")
 
 
 async def send_menu(chat_id):
@@ -196,7 +202,7 @@ async def send_menu(chat_id):
         if not results:
             print("[INLINE] query 'menu' menghasilkan 0 result")
             return False
-        await results[0].click(chat_id)
+        await results[0].click(chat_id, hide_via=True)
         return True
     except Exception as e:
         print(f"[INLINE] send_menu gagal: {type(e).__name__}: {e}")
@@ -218,7 +224,7 @@ async def send_stop_panel(chat_id, task):
         results = await client.inline_query(_bot_username, f"stop:{task}")
         if not results:
             return False
-        await results[0].click(chat_id)
+        await results[0].click(chat_id, hide_via=True)
         return True
     except Exception as e:
         print(f"[INLINE] send_stop_panel gagal: {type(e).__name__}: {e}")
