@@ -29,6 +29,8 @@ def _make_bot_client():
 
 
 async def _interactive_login(client):
+    if not client.is_connected():
+        await client.connect()
     if await client.is_user_authorized():
         return True
     print("[!] Login diperlukan.")
