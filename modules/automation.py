@@ -21,14 +21,14 @@ def load():
         global _afk_reason
         text = event.message.message.split(None, 1)
         _afk_reason = text[1].strip() if len(text) > 1 else "AFK"
-        await event.respond(helpers.wm(f"💤 AFK aktif: {_afk_reason}"))
+        await helpers.temp(event, helpers.wm(f"💤 AFK aktif: {_afk_reason}"))
         await event.delete()
 
     @client.on(events.NewMessage(pattern=helpers.cmd("back"), outgoing=True))
     async def back(event):
         global _afk_reason
         _afk_reason = None
-        await event.respond(helpers.wm("👋 Balik lagi."))
+        await helpers.temp(event, helpers.wm("👋 Balik lagi."))
         await event.delete()
 
     @client.on(events.NewMessage(incoming=True))
@@ -46,14 +46,14 @@ def load():
     async def filter_add(event):
         text = event.message.message.split(None, 3)
         if len(text) < 4:
-            await event.respond(helpers.wm("❌ Pakai: `.filter add <kata> <balasan>`"))
+            await helpers.temp(event, helpers.wm("❌ Pakai: `.filter add <kata> <balasan>`"))
             return
         keyword = text[2]
         reply = text[3]
         filters = store.load(FILTERS_KEY, [])
         filters.append({"kw": keyword.lower(), "reply": reply})
         store.save(FILTERS_KEY, filters)
-        await event.respond(helpers.wm(f"✅ Filter `{keyword}` ditambahkan."))
+        await helpers.temp(event, helpers.wm(f"✅ Filter `{keyword}` ditambahkan."))
         await event.delete()
 
     @client.on(events.NewMessage(pattern=helpers.cmd("filter", r"\s+list"), outgoing=True))
@@ -72,9 +72,9 @@ def load():
         if 0 <= idx < len(filters):
             removed = filters.pop(idx)
             store.save(FILTERS_KEY, filters)
-            await event.respond(helpers.wm(f"🗑 Filter `{removed['kw']}` dihapus."))
+            await helpers.temp(event, helpers.wm(f"🗑 Filter `{removed['kw']}` dihapus."))
         else:
-            await event.respond(helpers.wm("❌ Index tidak ada."))
+            await helpers.temp(event, helpers.wm("❌ Index tidak ada."))
 
     @client.on(events.NewMessage(incoming=True))
     async def auto_reply(event):
@@ -102,16 +102,16 @@ def load():
     async def fwd(event):
         args = event.message.message.split(None, 1)
         if len(args) < 2:
-            await event.respond(helpers.wm("❌ Pakai: `.fwd <username/ID target>`"))
+            await helpers.temp(event, helpers.wm("❌ Pakai: `.fwd <username/ID target>`"))
             return
         try:
             target = await client.get_input_entity(args[1].strip().lstrip("@"))
             forwards = store.load(FORWARDS_KEY, {})
             forwards[str(event.chat_id)] = int(getattr(target, "user_id", target))
             store.save(FORWARDS_KEY, forwards)
-            await event.respond(helpers.wm("✅ Semua pesan dari grup ini akan diteruskan."))
+            await helpers.temp(event, helpers.wm("✅ Semua pesan dari grup ini akan diteruskan."))
         except Exception as e:
-            await event.respond(helpers.wm(f"❌ Gagal: {e}"))
+            await helpers.temp(event, helpers.wm(f"❌ Gagal: {e}"))
         await event.delete()
 
     @client.on(events.NewMessage(pattern=helpers.cmd("fwdlist"), outgoing=True))
@@ -136,9 +136,9 @@ def load():
         if key in forwards:
             del forwards[key]
             store.save(FORWARDS_KEY, forwards)
-            await event.respond(helpers.wm("⛔ Auto-forward grup ini dihentikan."))
+            await helpers.temp(event, helpers.wm("⛔ Auto-forward grup ini dihentikan."))
         else:
-            await event.respond(helpers.wm("ℹ️ Grup ini tidak punya auto-forward."))
+            await helpers.temp(event, helpers.wm("ℹ️ Grup ini tidak punya auto-forward."))
         await event.delete()
 
     @client.on(events.NewMessage(incoming=True))
@@ -161,9 +161,9 @@ def load():
         text = event.message.message.split(None, 2)
         reminder = text[2] if len(text) > 2 else "Pengingat!"
         if seconds <= 0 or seconds > 86400:
-            await event.respond(helpers.wm("❌ Detik harus 1-86400."))
+            await helpers.temp(event, helpers.wm("❌ Detik harus 1-86400."))
             return
-        await event.respond(helpers.wm(f"⏰ Diingatkan dalam {seconds} detik."))
+        await helpers.temp(event, helpers.wm(f"⏰ Diingatkan dalam {seconds} detik."))
         await event.delete()
 
         async def do_remind():

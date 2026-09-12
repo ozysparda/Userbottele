@@ -35,10 +35,10 @@ def load():
     @client.on(events.NewMessage(pattern=helpers.cmd("ping"), outgoing=True))
     async def ping(event):
         start = datetime.now()
-        await event.respond(helpers.wm("🏓 Pong!"))
+        await helpers.temp(event, helpers.wm("🏓 Pong!"))
         end = datetime.now()
         latency = (end - start).total_seconds() * 1000
-        await event.respond(helpers.wm(f"📈 Latency: {latency:.2f} ms"))
+        await helpers.temp(event, helpers.wm(f"📈 Latency: {latency:.2f} ms"))
         await event.delete()
 
     @client.on(events.NewMessage(pattern=helpers.cmd("info"), outgoing=True))

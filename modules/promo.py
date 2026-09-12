@@ -177,11 +177,11 @@ def load():
     async def gcast(event):
         reply = await event.get_reply_message()
         if not reply:
-            await event.respond(helpers.wm("❌ Reply ke pesan yang mau di-broadcast."))
+            await helpers.temp(event, helpers.wm("❌ Reply ke pesan yang mau di-broadcast."))
             await event.delete()
             return
         if state.stop.get("gcast"):
-            await event.respond(helpers.wm("⛔ Ada broadcast berjalan. Tunggu atau .stopcast."))
+            await helpers.temp(event, helpers.wm("⛔ Ada broadcast berjalan. Tunggu atau .stopcast."))
             return
 
         await event.delete()
@@ -196,7 +196,7 @@ def load():
     async def gcast_template(event):
         variants = _load_variants()
         if not variants:
-            await event.respond(helpers.wm("❌ Belum ada template promo. Pakai `.addv <teks>` atau set VARIANTS di .env."))
+            await helpers.temp(event, helpers.wm("❌ Belum ada template promo. Pakai `.addv <teks>` atau set VARIANTS di .env."))
             await event.delete()
             return
         text = random.choice(variants)
@@ -211,7 +211,7 @@ def load():
         minutes = int(event.pattern_match.group(1))
         reply = await event.get_reply_message()
         if not reply:
-            await event.respond(helpers.wm("❌ Reply ke pesan yang mau di-broadcast."))
+            await helpers.temp(event, helpers.wm("❌ Reply ke pesan yang mau di-broadcast."))
             await event.delete()
             return
         content = reply.message or ""
@@ -232,12 +232,12 @@ def load():
     async def add_variant(event):
         text = event.message.message.split(None, 1)
         if len(text) < 2:
-            await event.respond(helpers.wm("❌ Pakai: `.addv <teks promo>`"))
+            await helpers.temp(event, helpers.wm("❌ Pakai: `.addv <teks promo>`"))
             return
         variants = _load_variants()
         variants.append(text[1])
         _save_variants(variants)
-        await event.respond(helpers.wm(f"✅ Template #{len(variants)-1} ditambahkan."))
+        await helpers.temp(event, helpers.wm(f"✅ Template #{len(variants)-1} ditambahkan."))
         await event.delete()
 
     @client.on(events.NewMessage(pattern=helpers.cmd("delv", r"\s+(\d+)"), outgoing=True))
@@ -247,15 +247,15 @@ def load():
         if 0 <= idx < len(variants):
             removed = variants.pop(idx)
             _save_variants(variants)
-            await event.respond(helpers.wm(f"🗑 Template #{idx} dihapus: {removed}"))
+            await helpers.temp(event, helpers.wm(f"🗑 Template #{idx} dihapus: {removed}"))
         else:
-            await event.respond(helpers.wm("❌ Index tidak ada."))
+            await helpers.temp(event, helpers.wm("❌ Index tidak ada."))
 
     @client.on(events.NewMessage(pattern=helpers.cmd("listv"), outgoing=True))
     async def list_variants(event):
         variants = _load_variants()
         if not variants:
-            await event.respond(helpers.wm("📭 Belum ada template."))
+            await helpers.temp(event, helpers.wm("📭 Belum ada template."))
             return
         text = "\n\n".join(f"`#{i}` {v}" for i, v in enumerate(variants))
         await event.respond(helpers.wm(f"**Template Promo:**\n\n{text}"))
@@ -263,7 +263,7 @@ def load():
     @client.on(events.NewMessage(pattern=helpers.cmd("jgc"), outgoing=True))
     async def join_groups(event):
         if state.stop.get("jgc"):
-            await event.respond(helpers.wm("⛔ Ada auto-join berjalan."))
+            await helpers.temp(event, helpers.wm("⛔ Ada auto-join berjalan."))
             return
         await event.delete()
         status = await event.respond(helpers.wm("🚀 **Mempersiapkan auto-join...**"))
@@ -276,11 +276,11 @@ def load():
         for task in ("gcast", "jgc"):
             if state.stop.get(task):
                 task_name = "broadcast" if task == "gcast" else "auto-join"
-                await event.respond(helpers.wm(f"⛔ Perintah stop untuk {task_name} dikirim."))
+                await helpers.temp(event, helpers.wm(f"⛔ Perintah stop untuk {task_name} dikirim."))
                 stopped = True
                 break
         if not stopped:
-            await event.respond(helpers.wm("ℹ️ Tidak ada proses yang berjalan."))
+            await helpers.temp(event, helpers.wm("ℹ️ Tidak ada proses yang berjalan."))
         state.stop["gcast"] = True
         state.stop["jgc"] = True
 
@@ -288,12 +288,12 @@ def load():
     async def spam(event):
         count = int(event.pattern_match.group(1))
         if count <= 0 or count > 50:
-            await event.respond(helpers.wm("❌ Jumlah harus 1-50."))
+            await helpers.temp(event, helpers.wm("❌ Jumlah harus 1-50."))
             await event.delete()
             return
         reply = await event.get_reply_message()
         if not reply:
-            await event.respond(helpers.wm("❌ Reply ke pesan yang mau di-spam."))
+            await helpers.temp(event, helpers.wm("❌ Reply ke pesan yang mau di-spam."))
             await event.delete()
             return
         await event.delete()

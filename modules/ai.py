@@ -43,7 +43,7 @@ def load():
     @client.on(events.NewMessage(pattern=helpers.cmd("ai", r"\s+"), outgoing=True))
     async def ai(event):
         if not config.GEMINI_KEY:
-            await event.respond(helpers.wm("❌ GEMINI_KEY belum diatur di .env"))
+            await helpers.temp(event, helpers.wm("❌ GEMINI_KEY belum diatur di .env"))
             await event.delete()
             return
         question = event.message.message.split(None, 1)[1].strip()

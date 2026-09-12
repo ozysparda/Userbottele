@@ -1,4 +1,5 @@
 """Utilities umum: owner check, watermark, progres, parsial command."""
+import asyncio
 import re
 
 from telethon.tl.types import Channel, Chat, User
@@ -33,6 +34,21 @@ def strip_wm(text):
     if config.WATERMARK_TEXT and text.endswith(config.WATERMARK_TEXT):
         return text[: -len(config.WATERMARK_TEXT)].rstrip("\n")
     return text
+
+
+async def temp(event, text, seconds=3):
+    """Kirim pesan status yang otomatis hapus sendiri setelah beberapa detik."""
+    msg = await event.respond(text)
+    asyncio.create_task(_autodelete(msg, seconds))
+    return msg
+
+
+async def _autodelete(msg, seconds):
+    await asyncio.sleep(seconds)
+    try:
+        await msg.delete()
+    except Exception:
+        pass
 
 
 async def owner_id():

@@ -38,23 +38,23 @@ def load():
     async def add_qr(event):
         reply = await event.get_reply_message()
         if not reply or not reply.media:
-            await event.respond(helpers.wm("❌ Reply ke foto QR."))
+            await helpers.temp(event, helpers.wm("❌ Reply ke foto QR."))
             await event.delete()
             return
         try:
             ts = datetime.now().strftime("%Y%m%d%H%M%S")
             path = QR_DIR / f"qr_{ts}.jpg"
             await client.download_media(reply, file=str(path))
-            await event.respond(helpers.wm("✅ QR disimpan."))
+            await helpers.temp(event, helpers.wm("✅ QR disimpan."))
         except Exception:
-            await event.respond(helpers.wm("❌ Gagal simpan QR."))
+            await helpers.temp(event, helpers.wm("❌ Gagal simpan QR."))
         await event.delete()
 
     @client.on(events.NewMessage(pattern=helpers.cmd("getqr"), outgoing=True))
     async def get_qr(event):
         files = sorted(QR_DIR.glob("*.jpg"))
         if not files:
-            await event.respond(helpers.wm("📭 Belum ada QR."))
+            await helpers.temp(event, helpers.wm("📭 Belum ada QR."))
             await event.delete()
             return
         for f in files[:10]:
@@ -72,25 +72,25 @@ def load():
         if 0 <= idx < len(files):
             try:
                 files[idx].unlink()
-                await event.respond(helpers.wm("🗑 QR dihapus."))
+                await helpers.temp(event, helpers.wm("🗑 QR dihapus."))
             except Exception:
-                await event.respond(helpers.wm("❌ Gagal hapus QR."))
+                await helpers.temp(event, helpers.wm("❌ Gagal hapus QR."))
         else:
-            await event.respond(helpers.wm("❌ Index tidak ada."))
+            await helpers.temp(event, helpers.wm("❌ Index tidak ada."))
 
     # ---------- SAVE (manual) ----------
     @client.on(events.NewMessage(pattern=helpers.cmd("save"), outgoing=True))
     async def save_media(event):
         reply = await event.get_reply_message()
         if not reply or not reply.media:
-            await event.respond(helpers.wm("❌ Reply ke media yang mau disimpan."))
+            await helpers.temp(event, helpers.wm("❌ Reply ke media yang mau disimpan."))
             await event.delete()
             return
         try:
             await client.forward_messages("me", reply.id, reply.chat_id)
-            await event.respond(helpers.wm("✅ Media disimpan ke Saved Messages."))
+            await helpers.temp(event, helpers.wm("✅ Media disimpan ke Saved Messages."))
         except Exception:
-            await event.respond(helpers.wm("❌ Gagal simpan media."))
+            await helpers.temp(event, helpers.wm("❌ Gagal simpan media."))
         await event.delete()
 
     # ---------- AUTO-SAVE MEDIA ----------
@@ -105,7 +105,7 @@ def load():
             chats.append(cid)
             txt = "✅ Auto-save media grup ini dinyalakan."
         store.save(SAVED_KEY, chats)
-        await event.respond(helpers.wm(txt))
+        await helpers.temp(event, helpers.wm(txt))
         await event.delete()
 
     @client.on(events.NewMessage(pattern=helpers.cmd("savelist"), outgoing=True))
@@ -145,7 +145,7 @@ def load():
         state_val = args[1].strip().lower() if len(args) > 1 else "on"
         enabled = state_val in ("on", "1", "true", "yes")
         store.save(AI_DELETE, enabled)
-        await event.respond(helpers.wm("🛡️ Anti-delete ON - pesan yang dihapus akan disimpan." if enabled else "❌ Anti-delete dimatikan."))
+        await helpers.temp(event, helpers.wm("🛡️ Anti-delete ON - pesan yang dihapus akan disimpan." if enabled else "❌ Anti-delete dimatikan."))
         await event.delete()
 
     @client.on(events.NewMessage(incoming=True))
