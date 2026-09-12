@@ -13,6 +13,14 @@ from telethon import events
 from core import helpers
 from core.state import state
 
+LANG = {
+    "id": "Indonesia", "en": "Inggris", "ms": "Melayu", "ar": "Arab",
+    "ja": "Jepang", "ko": "Korea", "zh": "Tionghoa", "fr": "Prancis",
+    "de": "Jerman", "es": "Spanyol", "pt": "Portugis", "ru": "Rusia",
+    "hi": "Hindi", "th": "Thailand", "tr": "Turki", "it": "Italia",
+    "nl": "Belanda", "vi": "Vietnam",
+}
+
 _OPS = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
@@ -80,6 +88,24 @@ def _translate(text, target):
     return "".join(seg[0] for seg in data[0])
 
 
+async def translate(text, target):
+    """Translate via Google, fallback ke Gemini kalau Google rate-limit/gagal."""
+    try:
+        return await asyncio.to_thread(_translate, text, target)
+    except Exception:
+        from modules.ai import ask_gemini
+
+        lang_name = LANG.get(target, target)
+        prompt = (
+            f"Terjemahkan teks berikut ke bahasa {lang_name}. "
+            f"Balas HANYA hasil terjemahan, tanpa ditambah kata lain:\n\n{text}"
+        )
+        result = await ask_gemini(prompt)
+        if result.startswith("❌"):
+            raise RuntimeError("gemini gagal")
+        return result
+
+
 def load():
     client = state.client
 
@@ -131,7 +157,7 @@ def load():
             await event.delete()
             return
         try:
-            result = await asyncio.to_thread(_translate, text, target)
+            result = await translate(text, target)
         except Exception:
             await helpers.temp(event, helpers.wm("❌ Gagal translate."))
             await event.delete()
