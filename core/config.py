@@ -70,7 +70,7 @@ LOG_CHAT_ID = get_int("LOG_CHAT_ID", 0)
 
 # ===== AI =====
 GEMINI_KEY = get("GEMINI_KEY", "")
-GEMINI_MODEL = get("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = get("GEMINI_MODEL", "gemini-3.6-flash")
 
 # ===== ANTI-BAN / RATE LIMIT =====
 SEND_RATE = get_int("SEND_RATE", 30)
