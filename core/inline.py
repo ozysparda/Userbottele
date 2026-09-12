@@ -79,6 +79,14 @@ HELP = {
             (".help", "Menu bantuan ini"),
         ],
     ),
+    "tools": (
+        "🛠️ UTILITAS",
+        [
+            (".calc <ekspresi>", "Kalkulator (contoh: .calc sqrt(144) + 5)"),
+            (".del", "Hapus pesan (reply). Tanpa reply = hapus sendiri"),
+            (".tr id <teks>", "Translate ke bahasa lain (reply juga bisa)"),
+        ],
+    ),
 }
 
 _bot_username = None
@@ -100,6 +108,7 @@ def build_help_text(category=None):
         "🤖 Automasi\n"
         "💾 Media\n"
         "✨ AI\n"
+        "🛠️ Utilitas\n"
         "📊 Informasi\n\n"
         f"Prefix: `{config.PREFIX}`"
     )
@@ -119,6 +128,9 @@ def _buttons(category=None):
         ],
         [
             Button.inline("✨ AI", "help:ai"),
+            Button.inline("🛠️ Utilitas", "help:tools"),
+        ],
+        [
             Button.inline("📊 Info", "help:info"),
         ],
     ]

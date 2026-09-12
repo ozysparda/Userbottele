@@ -71,8 +71,8 @@ async def _start_bot(bot):
 
 
 def _register_modules():
-    from modules import admin, ai, automation, media, panel, promo
-    for mod in (promo, admin, automation, media, ai, panel):
+    from modules import admin, ai, automation, media, panel, promo, tools
+    for mod in (promo, admin, automation, media, ai, panel, tools):
         mod.load()
 
 
