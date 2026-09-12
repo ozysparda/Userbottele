@@ -5,7 +5,8 @@ dan tombol STOP untuk .gcast/.jgc. Jika tidak, semuanya jatuh ke mode teks biasa
 """
 from telethon import events
 
-from core import config, state
+from core import config
+from core.state import state
 
 HELP = {
     "promo": (

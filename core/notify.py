@@ -1,5 +1,6 @@
 """Logging ringan ke Saved Messages atau LOG_CHAT_ID."""
-from core import config, state
+from core import config
+from core.state import state
 
 
 async def log(text, level="INFO"):

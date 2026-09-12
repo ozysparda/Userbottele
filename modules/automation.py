@@ -3,7 +3,8 @@ import asyncio
 
 from telethon import events
 
-from core import helpers, state, store
+from core import helpers, store
+from core.state import state
 
 FILTERS_KEY = "filters"
 FORWARDS_KEY = "forwards"

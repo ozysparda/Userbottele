@@ -6,7 +6,8 @@ from pathlib import Path
 
 from telethon import events
 
-from core import helpers, state, store
+from core import helpers, store
+from core.state import state
 
 QR_DIR = Path("qr_codes")
 MEDIA_DIR = Path("saved")

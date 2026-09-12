@@ -7,7 +7,8 @@ from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 
-from core import config, inline, notify, state
+from core import config, inline, notify
+from core.state import state
 
 BANNER = r"""
    _   _                   ____          _ _ _            

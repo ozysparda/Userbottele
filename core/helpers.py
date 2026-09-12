@@ -3,7 +3,8 @@ import re
 
 from telethon.tl.types import Channel, Chat, User
 
-from core import config, state
+from core import config
+from core.state import state
 
 PREFIX = config.PREFIX
 ESCAPED_PREFIX = re.escape(PREFIX)

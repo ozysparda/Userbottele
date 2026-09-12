@@ -7,7 +7,8 @@ from datetime import datetime
 from telethon import events
 from telethon.tl.types import MessageEntityMentionName, User
 
-from core import config, helpers, inline, state
+from core import config, helpers, inline
+from core.state import state
 
 
 async def _uptime():

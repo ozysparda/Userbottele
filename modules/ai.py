@@ -5,7 +5,8 @@ import urllib.request
 
 from telethon import events
 
-from core import config, helpers, state
+from core import config, helpers
+from core.state import state
 
 
 async def ask_gemini(question, context=""):

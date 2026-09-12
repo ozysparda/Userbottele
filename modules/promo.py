@@ -8,7 +8,8 @@ from telethon import events
 from telethon.errors import FloodWaitError
 from telethon.tl.functions.messages import ImportChatInviteRequest
 
-from core import config, helpers, inline, notify, state, store
+from core import config, helpers, inline, notify, store
+from core.state import state
 
 os.makedirs("downloads", exist_ok=True)
 
