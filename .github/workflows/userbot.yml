@@ -1,0 +1,36 @@
+name: userbot-24-7
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0,4,8,12,16,20 * * *"
+
+concurrency:
+  group: userbot
+  cancel-in-progress: true
+
+jobs:
+  userbot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Tulis .env dari secret ENV_BASE64
+        run: |
+          printf '%s' "$ENV_BASE64" | base64 -d > .env
+          python -c "print('.env OK, baris terisi:', sum(1 for l in open('.env') if '=' in l and not l.strip().startswith('#')))"
+        env:
+          ENV_BASE64: ${{ secrets.ENV_BASE64 }}
+
+      - name: Install dependensi
+        run: pip install -r requirements.txt
+
+      - name: Jalankan userbot
+        run: python -u UserBot.py
