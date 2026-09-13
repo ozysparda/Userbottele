@@ -1,7 +1,11 @@
 """Userbottele v2 — entry point. Jalankan: python UserBot.py [--check]"""
 import asyncio
+import json
 import sys
 import time
+from pathlib import Path
+
+import urllib.request
 
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
@@ -17,6 +21,72 @@ BANNER = r"""
   | |_| \__ \  __/ | |  __/ |_) |  __/  | |_| \__ \|  __/
    \___/|___/\___|_|  \___|____/ \___|   \___/|___/ \___|
 """
+
+
+META_PATH = Path(__file__).resolve().parent / "data" / "bot_meta.json"
+
+
+def _fetch_gist_meta():
+    gid = config.get("GIST_ID")
+    tok = config.get("GIST_TOKEN")
+    if not (gid and tok):
+        return None
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/gists/{gid}",
+            headers={"Authorization": f"Bearer {tok}",
+                     "Accept": "application/vnd.github+json",
+                     "User-Agent": "userbottele"},
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode())
+        content = (data.get("files") or {}).get("bot_meta.json", {}).get("content") or ""
+        try:
+            return json.loads(content)
+        except Exception:
+            return {}
+    except Exception:
+        return None
+
+
+def _save_gist_meta(meta):
+    gid = config.get("GIST_ID")
+    tok = config.get("GIST_TOKEN")
+    if not (gid and tok):
+        return False
+    try:
+        body = json.dumps({"files": {"bot_meta.json":
+                                     {"content": json.dumps(meta)}}}).encode()
+        req = urllib.request.Request(
+            f"https://api.github.com/gists/{gid}",
+            data=body, method="PATCH",
+            headers={"Authorization": f"Bearer {tok}",
+                     "Content-Type": "application/json",
+                     "Accept": "application/vnd.github+json",
+                     "User-Agent": "userbottele"},
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def _load_bot_meta():
+    meta = {}
+    if META_PATH.exists():
+        try:
+            meta = json.loads(META_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            meta = {}
+    if not meta.get("first_start"):
+        meta["first_start"] = int(time.time())
+    meta.setdefault("restarts", 0)
+    return meta
+
+
+def _save_bot_meta(meta):
+    META_PATH.parent.mkdir(parents=True, exist_ok=True)
+    META_PATH.write_text(json.dumps(meta), encoding="utf-8")
 
 
 def _make_user_client():
@@ -113,7 +183,16 @@ async def _main():
 
     user = _make_user_client()
     state.client = user
-    state.started_at = time.time()
+    meta = await asyncio.to_thread(_fetch_gist_meta)
+    if meta is None:
+        meta = _load_bot_meta()
+    else:
+        _save_bot_meta(meta)
+    meta["restarts"] += 1
+    _save_bot_meta(meta)
+    await asyncio.to_thread(_save_gist_meta, meta)
+    state.bot_meta = meta
+    state.started_at = float(meta["first_start"])
     state.flood.start()
 
     if not (await _interactive_login(user)):

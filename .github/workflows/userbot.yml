@@ -34,3 +34,6 @@ jobs:
 
       - name: Jalankan userbot
         run: python -u UserBot.py
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}

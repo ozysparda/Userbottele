@@ -62,6 +62,7 @@ def load():
             f"🐍 Python: `{sys.version.split()[0]}`\n"
             f"📡 Telethon: `{tl}`\n"
             f"⏱ Uptime: `{await _uptime()}`\n"
+            f"🔄 Restart: `{getattr(state, 'bot_meta', {}).get('restarts', 0)}`\n"
             f"💾 {_sysinfo()}\n"
             f"👥 Grup: `{groups}`\n"
             f"✨ AI: `{'ON' if config.GEMINI_KEY else 'OFF'}`\n"
