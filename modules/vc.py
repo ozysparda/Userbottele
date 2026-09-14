@@ -87,7 +87,7 @@ async def start_vc(chat_id, label=None):
     if PyTgCalls is None:
         raise RuntimeError("py-tgcalls tidak tersedia")
     state.stop["vc"] = False
-    if not _make_silence():
+    if not await asyncio.to_thread(_make_silence):
         raise RuntimeError("gagal membuat file silence")
     if _vc is None:
         _vc = PyTgCalls(state.client)
