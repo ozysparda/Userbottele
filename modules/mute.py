@@ -15,28 +15,33 @@ def _settings(mute):
     return InputPeerNotifySettings(mute_until=FOREVER if mute else 0)
 
 
+_last_err = None
+
+
 async def _apply(dialog, mute):
-    entity = dialog.entity
-    peer = getattr(entity, "input_entity", None)
-    if peer is None:
-        try:
-            peer = await dialog.client.get_input_entity(entity)
-        except Exception:
-            return False
+    global _last_err
     try:
-        await dialog.client(UpdateNotifySettingsRequest(
-            peer=peer, settings=_settings(mute),
+        await state.client(UpdateNotifySettingsRequest(
+            peer=dialog.input_entity, settings=_settings(mute),
         ))
         return True
-    except Exception:
+    except Exception as e:
+        if _last_err != type(e).__name__:
+            _last_err = type(e).__name__
+            print(f"[MUTE] {type(e).__name__}: {e}")
+            try:
+                from core import notify
+                await notify.log_error(f"mute: {type(e).__name__}: {e}")
+            except Exception:
+                pass
         return False
 
 
 def _kind(dialog):
-    if dialog.is_user and not dialog.is_self:
-        return "pm"
     if dialog.is_group or dialog.is_channel:
         return "gc"
+    if dialog.is_user:
+        return "pm"
     return "other"
 
 
