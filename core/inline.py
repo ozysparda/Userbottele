@@ -102,8 +102,13 @@ HELP = {
         [
             (".muteall [jeda]", "Mute notifikasi semua chat"),
             (".unmuteall [jeda]", "Unmute semua chat"),
+            (".mutegc [jeda]", "Mute semua grup/channel (GC)"),
+            (".unmutegc [jeda]", "Unmute semua grup/channel (GC)"),
+            (".mutepm [jeda]", "Mute semua chat pribadi (PM)"),
+            (".unmutepm [jeda]", "Unmute semua chat pribadi (PM)"),
             (".mutechat [jam] / .mute", "Mute chat ini (default selamanya)"),
             (".unmutechat / .unmute", "Unmute chat ini"),
+            (".stopmute", "Hentikan proses mute/unmute"),
             (".mutestat", "Statistik chat yang di-mute"),
         ],
     ),
