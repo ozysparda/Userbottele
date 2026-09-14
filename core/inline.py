@@ -109,6 +109,7 @@ HELP = {
             (".mutechat [jam] / .mute", "Mute chat ini (default selamanya)"),
             (".unmutechat / .unmute", "Unmute chat ini"),
             (".stopmute", "Hentikan proses mute/unmute"),
+            (".muteflush", "Reset memori mute (semua diproses lagi)"),
             (".mutestat", "Statistik chat yang di-mute"),
         ],
     ),
