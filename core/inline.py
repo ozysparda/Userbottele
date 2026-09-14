@@ -113,6 +113,14 @@ HELP = {
             (".mutestat", "Statistik chat yang di-mute"),
         ],
     ),
+    "vc": (
+        "🎙️ VOICE CHAT",
+        [
+            (".vcstart [chat|@username]", "Akun selalu berdiam di VC target (auto-buat & auto-rejoin)"),
+            (".vcstop", "Keluar dari VC & hapus target"),
+            (".vcstat", "Status voice chat"),
+        ],
+    ),
 }
 
 _bot_username = None
@@ -137,6 +145,7 @@ def build_help_text(category=None):
         "🛠️ Utilitas\n"
         "👥 Join Grup\n"
         "🔇 Notifikasi\n"
+        "🎙️ Voice Chat\n"
         "📊 Informasi\n\n"
         f"Prefix: `{config.PREFIX}`"
     )
@@ -163,6 +172,7 @@ def _buttons(category=None):
             Button.inline("🔇 Notifikasi", "help:mute"),
         ],
         [
+            Button.inline("🎙️ Voice Chat", "help:vc"),
             Button.inline("📊 Info", "help:info"),
         ],
     ]

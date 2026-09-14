@@ -32,6 +32,9 @@ jobs:
       - name: Install dependensi
         run: pip install -r requirements.txt
 
+      - name: Install ffmpeg (untuk voice chat)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Jalankan userbot
         run: python -u UserBot.py
         env:

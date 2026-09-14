@@ -89,6 +89,11 @@ def _save_bot_meta(meta):
     META_PATH.write_text(json.dumps(meta), encoding="utf-8")
 
 
+async def _persist_meta():
+    _save_bot_meta(state.bot_meta)
+    await asyncio.to_thread(_save_gist_meta, state.bot_meta)
+
+
 def _make_user_client():
     session = StringSession(config.STRING_SESSION) if config.STRING_SESSION else "userbot"
     return TelegramClient(session, config.API_ID, config.API_HASH, flood_sleep_threshold=10)
@@ -141,8 +146,8 @@ async def _start_bot(bot):
 
 
 def _register_modules():
-    from modules import admin, ai, automation, gc, media, mute, panel, promo, tools
-    for mod in (promo, admin, automation, gc, media, ai, mute, panel, tools):
+    from modules import admin, ai, automation, gc, media, mute, panel, promo, tools, vc
+    for mod in (promo, admin, automation, gc, media, ai, mute, panel, tools, vc):
         mod.load()
 
 
@@ -193,6 +198,7 @@ async def _main():
     await asyncio.to_thread(_save_gist_meta, meta)
     state.bot_meta = meta
     state.started_at = float(meta["first_start"])
+    state.save_meta = _persist_meta
     state.flood.start()
 
     if not (await _interactive_login(user)):
@@ -207,6 +213,10 @@ async def _main():
     _register_modules()
     inline.attach()
     state.ui = True
+
+    from modules import vc as vc_mod
+    if meta.get("vc_target"):
+        asyncio.create_task(vc_mod.auto_join())
 
     print("[OK] Userbot berjalan. Ketik .help di Telegram untuk menu.")
     await notify.log(f"🚀 Userbot v{config.VERSION} berjalan. Owner: {me.id}")
