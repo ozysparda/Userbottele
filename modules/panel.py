@@ -29,6 +29,15 @@ def _sysinfo():
         return f"OS: {platform.system()} {platform.release()}"
 
 
+def _gc_stats():
+    try:
+        from core import store
+        gc = store.load("gc_join_stats", {"ok": 0, "fail": 0})
+        return gc
+    except Exception:
+        return {"ok": 0, "fail": 0}
+
+
 def load():
     client = state.client
 
@@ -82,12 +91,15 @@ def load():
     @client.on(events.NewMessage(pattern=helpers.cmd("stats"), outgoing=True))
     async def stats(event):
         st = state.stats
+        gc = _gc_stats()
         text = (
             "**📊 STATISTIK**\n"
             "-----------------------\n"
             f"📣 Pesan broadcast: `{st['gcast_sent']}`\n"
             f"🤖 Auto-reply terkirim: `{st['auto_reply_sent']}`\n"
-            f"🔗 Link terdeteksi: `{len(state.detected_links)}`"
+            f"🔗 Link terdeteksi: `{len(state.detected_links)}`\n"
+            f"👥 GC join berhasil: `{gc['ok']}`\n"
+            f"❌ GC join gagal: `{gc['fail']}`"
         )
         await event.respond(helpers.wm(text))
         await event.delete()

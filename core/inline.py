@@ -87,6 +87,16 @@ HELP = {
             (".tr id <teks>", "Translate ke bahasa lain (reply juga bisa)"),
         ],
     ),
+    "gc": (
+        "👥 JOIN GRUP",
+        [
+            (".joingc [n] [jeda]", "Join n grup via invite link (default 20, cooldown 60s)"),
+            (".stopjgc", "Hentikan proses join GC"),
+            (".gclink <link...>", "Simpan invite link ke daftar"),
+            (".gclist", "Lihat status link & statistik join"),
+            (".gcflush", "Hapus semua data join & link"),
+        ],
+    ),
 }
 
 _bot_username = None
@@ -109,6 +119,7 @@ def build_help_text(category=None):
         "💾 Media\n"
         "✨ AI\n"
         "🛠️ Utilitas\n"
+        "👥 Join Grup\n"
         "📊 Informasi\n\n"
         f"Prefix: `{config.PREFIX}`"
     )
@@ -131,6 +142,7 @@ def _buttons(category=None):
             Button.inline("🛠️ Utilitas", "help:tools"),
         ],
         [
+            Button.inline("👥 Join Grup", "help:gc"),
             Button.inline("📊 Info", "help:info"),
         ],
     ]
