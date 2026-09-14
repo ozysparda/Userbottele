@@ -97,6 +97,16 @@ HELP = {
             (".gcflush", "Hapus semua data join & link"),
         ],
     ),
+    "mute": (
+        "🔇 NOTIFIKASI",
+        [
+            (".muteall [jeda]", "Mute notifikasi semua chat"),
+            (".unmuteall [jeda]", "Unmute semua chat"),
+            (".mutechat [jam] / .mute", "Mute chat ini (default selamanya)"),
+            (".unmutechat / .unmute", "Unmute chat ini"),
+            (".mutestat", "Statistik chat yang di-mute"),
+        ],
+    ),
 }
 
 _bot_username = None
@@ -120,6 +130,7 @@ def build_help_text(category=None):
         "✨ AI\n"
         "🛠️ Utilitas\n"
         "👥 Join Grup\n"
+        "🔇 Notifikasi\n"
         "📊 Informasi\n\n"
         f"Prefix: `{config.PREFIX}`"
     )
@@ -143,6 +154,9 @@ def _buttons(category=None):
         ],
         [
             Button.inline("👥 Join Grup", "help:gc"),
+            Button.inline("🔇 Notifikasi", "help:mute"),
+        ],
+        [
             Button.inline("📊 Info", "help:info"),
         ],
     ]
