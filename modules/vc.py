@@ -27,19 +27,34 @@ def _pkgs():
         return None, None
 
 
+def _ffmpeg_exe():
+    import shutil
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+
+
 def _make_silence():
     if SILENCE.exists() and SILENCE.stat().st_size > 0:
         return True
     SILENCE.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        subprocess.run(
-            ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
-             "-t", "43200", "-c:a", "libopus", "-b:a", "12k", str(SILENCE)],
-            check=True, capture_output=True, timeout=90,
-        )
-        return SILENCE.exists() and SILENCE.stat().st_size > 0
-    except Exception:
-        pass
+    exe = _ffmpeg_exe()
+    if exe:
+        try:
+            subprocess.run(
+                [exe, "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+                 "-t", "43200", "-c:a", "libopus", "-b:a", "12k", str(SILENCE)],
+                check=True, capture_output=True, timeout=90,
+            )
+            if SILENCE.exists() and SILENCE.stat().st_size > 0:
+                return True
+        except Exception:
+            pass
     try:
         import wave
         with wave.open(str(SILENCE), "wb") as w:

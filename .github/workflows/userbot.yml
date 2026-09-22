@@ -40,16 +40,6 @@ jobs:
       - name: Install dependensi
         run: pip install --no-input -q -r requirements.txt
 
-      - name: Cek ffmpeg (sudah ada di image runner)
-        run: |
-          if ! command -v ffmpeg >/dev/null 2>&1; then
-            echo "ffmpeg tidak ada, install..."
-            sudo apt-get update && sudo apt-get install -y ffmpeg
-          else
-            echo "ffmpeg sudah tersedia:"
-          fi
-          ffmpeg -version | head -1
-
       - name: Jalankan userbot
         run: python -u UserBot.py
         env:
