@@ -1,0 +1,32 @@
+name: watchdog-restart
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Cek apakah userbot masih jalan
+        id: probe
+        run: |
+          n=$(gh api "repos/${{ github.repository }}/actions/runs?workflow_id=userbot.yml&status=in_progress&per_page=1" --jq '.total_count' 2>/dev/null || echo 0)
+          echo "In-progress run userbot: $n"
+          echo "running=$n" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch ulang kalau bot mati
+        if: steps.probe.outputs.running == '0'
+        run: gh workflow run userbot.yml

@@ -1,6 +1,7 @@
 """Userbottele v2 — entry point. Jalankan: python UserBot.py [--check]"""
 import asyncio
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -87,6 +88,44 @@ def _load_bot_meta():
 def _save_bot_meta(meta):
     META_PATH.parent.mkdir(parents=True, exist_ok=True)
     META_PATH.write_text(json.dumps(meta), encoding="utf-8")
+
+
+def _dispatch_workflow():
+    repo = config.get("GITHUB_REPOSITORY")
+    tok = os.environ.get("GITHUB_TOKEN")
+    if not (repo and tok and "/" in repo):
+        return False
+    try:
+        body = json.dumps({"ref": "main"}).encode()
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{repo}/actions/workflows/userbot.yml/dispatches",
+            data=body, method="POST",
+            headers={"Authorization": f"Bearer {tok}",
+                     "Accept": "application/vnd.github+json",
+                     "User-Agent": "userbottele",
+                     "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status == 204
+    except Exception as e:
+        print(f"[SCHEDULER] dispatch gagal: {e}")
+        return False
+
+
+async def _reboot_scheduler():
+    run_min = config.get_int("RUN_MINUTES", 360)
+    lead = config.get_int("REBOOT_LEAD", 240)
+    target = max(int(run_min) * 60 - int(lead), 60)
+    started = time.monotonic()
+    while True:
+        elapsed = time.monotonic() - started
+        if elapsed >= target:
+            for _ in range(4):
+                if _dispatch_workflow():
+                    break
+                await asyncio.sleep(60)
+            break
+        await asyncio.sleep(30)
 
 
 async def _persist_meta():
@@ -220,6 +259,7 @@ async def _main():
 
     print("[OK] Userbot berjalan. Ketik .help di Telegram untuk menu.")
     await notify.log(f"🚀 Userbot v{config.VERSION} berjalan. Owner: {me.id}")
+    asyncio.create_task(_reboot_scheduler())
 
     clients = [user.run_until_disconnected()]
     if state.bot:
