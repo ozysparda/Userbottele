@@ -191,8 +191,8 @@ async def _start_bot(bot):
 
 
 def _register_modules():
-    from modules import access, admin, ai, automation, gcast, gc, media, mute, panel, sticker, tools, vc
-    for mod in (access, gcast, admin, automation, gc, media, ai, mute, panel, tools, sticker, vc):
+    from modules import access, admin, ai, automation, gcast, gc, log, media, mute, panel, sticker, tools, vc
+    for mod in (access, gcast, admin, automation, gc, media, ai, mute, panel, tools, sticker, log, vc):
         mod.load()
 
 
