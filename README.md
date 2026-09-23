@@ -12,7 +12,7 @@ Userbot Telegram (Python + Telethon) untuk broadcast/promo, auto-join grup, auto
 ### 📣 Promo & Broadcast
 | Command | Fungsi |
 |---|---|
-| `.gcast` | Broadcast pesan yang di-reply ke semua grup (progress + tombol STOP) |
+| `.gcast <pesan>` | Broadcast ke semua grup — reply pesan **atau** ketik teks langsung (progress + tombol STOP) |
 | `.gcastt` | Broadcast template promo (dipilih acak dari `.addv`) |
 | `.gcasts <menit>` | Broadcast terjadwal |
 | `.addv <teks>` / `.delv <idx>` / `.listv` | Kelola template promo |

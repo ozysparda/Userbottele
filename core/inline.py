@@ -12,7 +12,7 @@ HELP = {
     "promo": (
         "📣 PROMO & BROADCAST",
         [
-            (".gcast", "Broadcast (reply) ke semua grup"),
+            (".gcast <pesan>", "Broadcast ke semua grup (reply atau teks langsung)"),
             (".gcastt", "Broadcast template promo (acak)"),
             (".gcasts <menit>", "Broadcast terjadwal (reply)"),
             (".addv <teks>", "Tambah template promo"),

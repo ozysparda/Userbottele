@@ -173,11 +173,12 @@ def load():
             for link in re.findall(pattern, event.message.text):
                 state.detected_links.add(link)
 
-    @client.on(events.NewMessage(pattern=helpers.cmd("gcast"), outgoing=True))
+    @client.on(events.NewMessage(pattern=helpers.cmd("gcast", r"(?:\s+(.+))?$"), outgoing=True))
     async def gcast(event):
         reply = await event.get_reply_message()
-        if not reply:
-            await helpers.temp(event, helpers.wm("❌ Reply ke pesan yang mau di-broadcast."))
+        arg = (event.pattern_match.group(1) or "").strip() if event.pattern_match else ""
+        if not reply and not arg:
+            await helpers.temp(event, helpers.wm("❌ Reply ke pesan ATAU ketik `.gcast <pesan>`."))
             await event.delete()
             return
         if state.stop.get("gcast"):
@@ -187,8 +188,11 @@ def load():
         await event.delete()
         status = await event.respond(helpers.wm("📣 **Broadcast dimulai...**"))
         await inline.send_stop_panel(event.chat_id, "gcast")
-        media_path, caption = await _media_for_reply(reply, event.chat_id)
-        text = caption or (reply.message or "")
+        if reply:
+            media_path, caption = await _media_for_reply(reply, event.chat_id)
+            text = caption or (reply.message or "")
+        else:
+            media_path, text = None, arg
         sent, failed = await _broadcast(event.chat_id, text, media_path, status.id)
         await _poke(event.chat_id, f"⚡ Broadcast selesai: {sent} grup terkirim, {failed} gagal.")
 
@@ -206,15 +210,16 @@ def load():
         sent, failed = await _broadcast(event.chat_id, text, None, status.id)
         await _poke(event.chat_id, f"⚡ Broadcast template selesai: {sent} grup, {failed} gagal.")
 
-    @client.on(events.NewMessage(pattern=helpers.cmd("gcasts", r"\s+(\d+)"), outgoing=True))
+    @client.on(events.NewMessage(pattern=helpers.cmd("gcasts", r"\s+(\d+)(?:\s+(.+))?$"), outgoing=True))
     async def gcast_schedule(event):
         minutes = int(event.pattern_match.group(1))
+        arg = (event.pattern_match.group(2) or "").strip() if event.pattern_match else ""
         reply = await event.get_reply_message()
-        if not reply:
-            await helpers.temp(event, helpers.wm("❌ Reply ke pesan yang mau di-broadcast."))
+        if not reply and not arg:
+            await helpers.temp(event, helpers.wm("❌ Reply ke pesan ATAU ketik `.gcasts <menit> <pesan>`."))
             await event.delete()
             return
-        content = reply.message or ""
+        content = reply.message or arg
         await event.respond(helpers.wm(f"⏳ Broadcast terjadwal dalam {minutes} menit.\nKetuk .stopcast untuk batal."))
         await event.delete()
 
