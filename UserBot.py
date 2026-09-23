@@ -90,26 +90,22 @@ def _save_bot_meta(meta):
     META_PATH.write_text(json.dumps(meta), encoding="utf-8")
 
 
-def _dispatch_workflow():
-    repo = config.get("GITHUB_REPOSITORY")
-    tok = os.environ.get("GITHUB_TOKEN")
-    if not (repo and tok and "/" in repo):
+def _dispatch_workflow(tok):
+    repo = os.environ.get("GITHUB_REPOSITORY") or config.get("GITHUB_REPOSITORY")
+    if not (repo and "/" in repo):
+        print("[SCHEDULER] GITHUB_REPOSITORY tidak ada")
         return False
-    try:
-        body = json.dumps({"ref": "main"}).encode()
-        req = urllib.request.Request(
-            f"https://api.github.com/repos/{repo}/actions/workflows/userbot.yml/dispatches",
-            data=body, method="POST",
-            headers={"Authorization": f"Bearer {tok}",
-                     "Accept": "application/vnd.github+json",
-                     "User-Agent": "userbottele",
-                     "Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return resp.status == 204
-    except Exception as e:
-        print(f"[SCHEDULER] dispatch gagal: {e}")
-        return False
+    body = json.dumps({"ref": "main"}).encode()
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/actions/workflows/userbot.yml/dispatches",
+        data=body, method="POST",
+        headers={"Authorization": f"Bearer {tok}",
+                 "Accept": "application/vnd.github+json",
+                 "User-Agent": "userbottele",
+                 "Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.status == 204
 
 
 async def _reboot_scheduler():
@@ -117,12 +113,22 @@ async def _reboot_scheduler():
     lead = config.get_int("REBOOT_LEAD", 240)
     target = max(int(run_min) * 60 - int(lead), 60)
     started = time.monotonic()
+    tokens = []
+    for t in (os.environ.get("GITHUB_TOKEN"), config.get("GIST_TOKEN")):
+        if t and t not in tokens:
+            tokens.append(t)
     while True:
         elapsed = time.monotonic() - started
         if elapsed >= target:
-            for _ in range(4):
-                if _dispatch_workflow():
-                    break
+            for i in range(40):
+                for tok in tokens:
+                    try:
+                        ok = _dispatch_workflow(tok)
+                        if ok:
+                            print(f"[SCHEDULER] dispatch OK pakai {('GITHUB_TOKEN' if tok == os.environ.get('GITHUB_TOKEN') else 'GIST_TOKEN')}")
+                            return
+                    except Exception as e:
+                        print(f"[SCHEDULER] dispatch gagal: {e}")
                 await asyncio.sleep(60)
             break
         await asyncio.sleep(30)
@@ -240,6 +246,8 @@ async def _main():
     state.save_meta = _persist_meta
     state.flood.start()
 
+    asyncio.create_task(_reboot_scheduler())
+
     if not (await _interactive_login(user)):
         sys.exit(1)
 
@@ -255,11 +263,13 @@ async def _main():
 
     from modules import vc as vc_mod
     if meta.get("vc_target"):
-        asyncio.create_task(vc_mod.auto_join())
+        try:
+            asyncio.create_task(vc_mod.auto_join())
+        except Exception as e:
+            print(f"[VC] auto-join tidak bisa di-arm: {e}")
 
     print("[OK] Userbot berjalan. Ketik .help di Telegram untuk menu.")
     await notify.log(f"🚀 Userbot v{config.VERSION} berjalan. Owner: {me.id}")
-    asyncio.create_task(_reboot_scheduler())
 
     clients = [user.run_until_disconnected()]
     if state.bot:

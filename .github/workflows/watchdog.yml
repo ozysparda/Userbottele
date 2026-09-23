@@ -29,4 +29,4 @@ jobs:
 
       - name: Dispatch ulang kalau bot mati
         if: steps.probe.outputs.running == '0'
-        run: gh workflow run userbot.yml
+        run: gh workflow run userbot.yml --repo "${{ github.repository }}"
