@@ -17,6 +17,9 @@ Userbot Telegram (Python + Telethon) untuk broadcast global, auto-join grup, aut
 | `.gcasts <menit>` | Broadcast terjadwal |
 | `.addv <teks>` / `.delv <idx>` / `.listv` | Kelola template |
 | `.jgc` | Auto-join semua link grup `t.me/+...` yang terdeteksi |
+| `.joinadd <link>` / `.joinlist` / `.joindel <idx>` | Simpan & kelola daftar link join custom |
+| `.gcastpm <pesan>` | Broadcast ke semua PM/inbox |
+| `.gcron 09:30 <pesan>` | Broadcast berulang tiap hari (`list` / `del <idx>`) |
 | `.stopcast` | Batalkan gcast/jgc |
 
 ### 🛡️ Admin & Grup
