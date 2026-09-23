@@ -1,4 +1,4 @@
-"""Promo & broadcast: gcast, gcast terjadwal, template, jgc (auto-join), spam, deteksi link."""
+"""Broadcast & grup: gcast, gcast terjadwal, template, jgc (auto-join), spam, deteksi link."""
 import asyncio
 import os
 import random
@@ -200,7 +200,7 @@ def load():
     async def gcast_template(event):
         variants = _load_variants()
         if not variants:
-            await helpers.temp(event, helpers.wm("❌ Belum ada template promo. Pakai `.addv <teks>` atau set VARIANTS di .env."))
+            await helpers.temp(event, helpers.wm("❌ Belum ada template. Pakai `.addv <teks>` atau set VARIANTS di .env."))
             await event.delete()
             return
         text = random.choice(variants)
@@ -237,7 +237,7 @@ def load():
     async def add_variant(event):
         text = event.message.message.split(None, 1)
         if len(text) < 2:
-            await helpers.temp(event, helpers.wm("❌ Pakai: `.addv <teks promo>`"))
+            await helpers.temp(event, helpers.wm("❌ Pakai: `.addv <teks>`"))
             return
         variants = _load_variants()
         variants.append(text[1])
@@ -263,7 +263,7 @@ def load():
             await helpers.temp(event, helpers.wm("📭 Belum ada template."))
             return
         text = "\n\n".join(f"`#{i}` {v}" for i, v in enumerate(variants))
-        await event.respond(helpers.wm(f"**Template Promo:**\n\n{text}"))
+        await event.respond(helpers.wm(f"**Template Tersimpan:**\n\n{text}"))
 
     @client.on(events.NewMessage(pattern=helpers.cmd("jgc"), outgoing=True))
     async def join_groups(event):

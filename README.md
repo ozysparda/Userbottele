@@ -1,6 +1,6 @@
 # Userbottele v2
 
-Userbot Telegram (Python + Telethon) untuk broadcast/promo, auto-join grup, automasi, media, dan AI — dilengkapi perlindungan anti-flood supaya akun aman dari limiter Telegram.
+Userbot Telegram (Python + Telethon) untuk broadcast global, auto-join grup, automasi, media, dan AI — dilengkapi perlindungan anti-flood supaya akun aman dari limiter Telegram.
 
 ## ⚠️ Perhatian (wajib baca)
 
@@ -9,13 +9,13 @@ Userbot Telegram (Python + Telethon) untuk broadcast/promo, auto-join grup, auto
 
 ## Fitur
 
-### 📣 Promo & Broadcast
+### 📣 Broadcast Global
 | Command | Fungsi |
 |---|---|
 | `.gcast <pesan>` | Broadcast ke semua grup — reply pesan **atau** ketik teks langsung (progress + tombol STOP) |
-| `.gcastt` | Broadcast template promo (dipilih acak dari `.addv`) |
+| `.gcastt` | Broadcast template (dipilih acak dari `.addv`) |
 | `.gcasts <menit>` | Broadcast terjadwal |
-| `.addv <teks>` / `.delv <idx>` / `.listv` | Kelola template promo |
+| `.addv <teks>` / `.delv <idx>` / `.listv` | Kelola template |
 | `.jgc` | Auto-join semua link grup `t.me/+...` yang terdeteksi |
 | `.stopcast` | Batalkan gcast/jgc |
 
@@ -67,7 +67,7 @@ python UserBot.py --check
 - **Tombol inline UI** — set `BOT_TOKEN` (buat bot di @BotFather, aktifkan inline mode). Menu `.help` jadi interaktif + tombol STOP di gcast/jgc.
 - **AI Gemini** — set `GEMINI_KEY` (https://aistudio.google.com/apikey). Bisa pakai model lain via `GEMINI_MODEL`.
 - **StringSession** — set `STRING_SESSION` kalau mau pindah-pindah device / host cloud (generate via string session generator Telethon).
-- **Template promo** — set `VARIANTS=promo1|promo2|...` atau pakai `.addv`.
+- **Template** — set `VARIANTS=teks1|teks2|...` atau pakai `.addv`.
 - **Logging** — set `LOG_CHAT_ID` kalau mau log aksi dikumpulkan ke grup khusus.
 
 ## Anti-ban / rate limit

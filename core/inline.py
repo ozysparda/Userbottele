@@ -9,15 +9,15 @@ from core import config, notify
 from core.state import state
 
 HELP = {
-    "promo": (
-        "📣 PROMO & BROADCAST",
+    "gcast": (
+        "📣 BROADCAST GLOBAL",
         [
             (".gcast <pesan>", "Broadcast ke semua grup (reply atau teks langsung)"),
-            (".gcastt", "Broadcast template promo (acak)"),
+            (".gcastt", "Broadcast template (acak)"),
             (".gcasts <menit>", "Broadcast terjadwal (reply)"),
-            (".addv <teks>", "Tambah template promo"),
-            (".delv <idx>", "Hapus template promo"),
-            (".listv", "Lihat semua template promo"),
+            (".addv <teks>", "Tambah template"),
+            (".delv <idx>", "Hapus template"),
+            (".listv", "Lihat semua template"),
             (".jgc", "Auto-join semua link grup yang terdeteksi"),
             (".stopcast", "Batalkan gcast/jgc yang berjalan"),
         ],
@@ -137,7 +137,7 @@ def build_help_text(category=None):
     return (
         "**BANTUAN USERBOT**\n\n"
         "Pilih kategori di bawah:\n\n"
-        "📣 Promo & Broadcast\n"
+        "📣 Broadcast Global\n"
         "🛡️ Admin & Grup\n"
         "🤖 Automasi\n"
         "💾 Media\n"
@@ -156,7 +156,7 @@ def _buttons(category=None):
         return [[Button.inline("🔙 Kembali", "help:root")]]
     return [
         [
-            Button.inline("📣 Promo", "help:promo"),
+            Button.inline("📣 Gcast", "help:gcast"),
             Button.inline("🛡️ Admin", "help:admin"),
         ],
         [

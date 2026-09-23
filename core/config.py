@@ -83,7 +83,7 @@ JOIN_WINDOW = get_int("JOIN_WINDOW", 600)
 JOIN_DELAY_MIN = get_float("JOIN_DELAY_MIN", 35.0)
 JOIN_DELAY_MAX = get_float("JOIN_DELAY_MAX", 60.0)
 
-# ===== PROMO =====
+# ===== BROADCAST / TEMPLATE =====
 VARIANTS = get_list("VARIANTS")
 
 # ===== LAIN-LAIN =====
