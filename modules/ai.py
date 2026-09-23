@@ -1,5 +1,10 @@
-"""AI backend: opencode (default) atau Gemini. Aktifkan dengan set GEMINI_KEY di .env."""
+"""AI backend.
+
+- .ai (chat teks)      -> opencode CLI (default) atau Gemini.
+- .img / .imgedit foto  -> Gemini (opencode CLI tidak bisa generate foto).
+"""
 import asyncio
+import base64
 import json
 import os
 import re
@@ -130,6 +135,52 @@ async def ask_ai(question, context=""):
     return await ask_gemini(question, context)
 
 
+def _gemini_img_url(model):
+    return (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model}:generateContent?key={config.GEMINI_KEY}"
+    )
+
+
+async def _gemini_img(prompt, image_b64="", mime="image/jpeg"):
+    """Generate (tanpa image) atau edit (dengan image) via Gemini image model.
+    Return (pesan_error_atau_None, daftar_bytes_gambar)."""
+    if not config.GEMINI_KEY:
+        return "❌ GEMINI_KEY belum diatur.", []
+    model = config.GEMINI_IMG_MODEL
+    parts = [{"text": prompt}]
+    if image_b64:
+        parts.append({"inlineData": {"mimeType": mime, "data": image_b64}})
+    payload = json.dumps({
+        "contents": [{"parts": parts}],
+        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
+    }).encode()
+    req = urllib.request.Request(
+        _gemini_img_url(model), data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+
+    def _call():
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            return json.loads(resp.read().decode())
+
+    try:
+        data = await asyncio.to_thread(_call)
+    except Exception:
+        return "❌ Gagal memproses foto (rate limit / API down).", []
+
+    images = []
+    for part in data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
+        if "inlineData" in part:
+            try:
+                images.append(base64.b64decode(part["inlineData"]["data"]))
+            except Exception:
+                pass
+    if not images:
+        return "❌ Tidak ada gambar dihasilkan (prompt diblokir / gagal).", []
+    return None, images
+
+
 def chunks(text, size=4000):
     return [text[i:i + size] for i in range(0, len(text), size)] if text else ["(kosong)"]
 
@@ -156,10 +207,82 @@ def load():
             await event.respond(helpers.wm(part))
         await event.delete()
 
+    @client.on(events.NewMessage(pattern=helpers.cmd("img", r"\s+"), outgoing=True))
+    async def img(event):
+        if not config.GEMINI_KEY:
+            await helpers.temp(event, helpers.wm("❌ GEMINI_KEY belum diatur — .img butuh Gemini."))
+            await event.delete()
+            return
+        prompt = event.message.message.split(None, 1)[1].strip()
+        note = await event.respond(helpers.wm("🎨 Menggambar..."))
+        err, images = await _gemini_img(prompt)
+        if err:
+            try:
+                await note.delete()
+            except Exception:
+                pass
+            await event.respond(helpers.wm(err))
+            await event.delete()
+            return
+        try:
+            for i, raw in enumerate(images[:4]):
+                path = Path(tempfile.gettempdir()) / f"img_{i}_{len(raw)}.png"
+                path.write_bytes(raw)
+                await event.respond(helpers.wm(f"🖼 {prompt}"), file=str(path))
+                await asyncio.sleep(1)
+            await note.delete()
+        except Exception:
+            await event.respond(helpers.wm("❌ Gagal kirim gambar."))
+        await event.delete()
+
+    @client.on(events.NewMessage(pattern=helpers.cmd("imgedit", r"\s+"), outgoing=True))
+    async def imgedit(event):
+        if not config.GEMINI_KEY:
+            await helpers.temp(event, helpers.wm("❌ GEMINI_KEY belum diatur — .imgedit butuh Gemini."))
+            await event.delete()
+            return
+        prompt = event.message.message.split(None, 1)[1].strip()
+        reply = await event.get_reply_message()
+        if not reply or not reply.photo:
+            await helpers.temp(event, helpers.wm("❌ Reply ke foto yang mau diedit."))
+            await event.delete()
+            return
+        note = await event.respond(helpers.wm("✏️ Mengedit foto..."))
+        try:
+            img = await client.download_media(reply, file=bytes)
+        except Exception:
+            await event.respond(helpers.wm("❌ Gagal download foto."))
+            await event.delete()
+            return
+        image_b64 = base64.b64encode(img).decode()
+        err, images = await _gemini_img(prompt, image_b64)
+        if err:
+            try:
+                await note.delete()
+            except Exception:
+                pass
+            await event.respond(helpers.wm(err))
+            await event.delete()
+            return
+        try:
+            for i, raw in enumerate(images[:4]):
+                path = Path(tempfile.gettempdir()) / f"edit_{i}_{len(raw)}.png"
+                path.write_bytes(raw)
+                await event.respond(helpers.wm(f"✏️ {prompt}"), file=str(path))
+                await asyncio.sleep(1)
+            await note.delete()
+        except Exception:
+            await event.respond(helpers.wm("❌ Gagal kirim gambar."))
+        await event.delete()
+
     @client.on(events.NewMessage(pattern=helpers.cmd("ailist"), outgoing=True))
     async def ailist(event):
         provider = _provider()
         status = "❌ Nonaktif — set GEMINI_KEY di .env" if not provider else \
             f"✅ Aktif\nProvider: `{provider}`\nModel: `{_model()}`"
-        await event.respond(helpers.wm(f"**Status AI:**\n{status}"))
+        img_status = "✅" if config.GEMINI_KEY else "❌"
+        await event.respond(helpers.wm(
+            f"**Status AI:**\n{status}\n"
+            f"Foto (Gemini): {img_status} `{config.GEMINI_IMG_MODEL}`"
+        ))
         await event.delete()

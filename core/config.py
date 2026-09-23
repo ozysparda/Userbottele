@@ -71,6 +71,8 @@ LOG_CHAT_ID = get_int("LOG_CHAT_ID", 0)
 # ===== AI =====
 GEMINI_KEY = get("GEMINI_KEY", "")
 GEMINI_MODEL = get("GEMINI_MODEL", "gemini-3.6-flash")
+# Model untuk generate/edit foto (Gemini image model / Nano Banana)
+GEMINI_IMG_MODEL = get("GEMINI_IMG_MODEL", "gemini-3.1-flash-image")
 # Provider AI: opencode | gemini | auto (auto = pakai opencode bila terpasang)
 AI_PROVIDER = get("AI_PROVIDER", "auto")
 # Model untuk opencode, misal google/gemini-3.6-flash atau opencode/big-pickle
