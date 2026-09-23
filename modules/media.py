@@ -1,6 +1,8 @@
 """Media: QR codes, auto-save media, anti-delete, downloader yt-dlp."""
 import asyncio
 import os
+import subprocess
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +26,18 @@ _antidel_buffer = {}  # chat_id -> {msg_id: Message}
 
 def _saved_chats():
     return store.load(SAVED_KEY, [])
+
+
+def _ffmpeg_exe():
+    import shutil
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
 
 
 def _antidel_enabled():
@@ -179,6 +193,52 @@ def load():
                     await client.forward_messages("me", msg.id, msg.chat_id)
             except Exception:
                 pass
+
+    # ---------- STIKER -> FOTO ----------
+    @client.on(events.NewMessage(pattern=helpers.cmd("toimg"), outgoing=True))
+    async def toimg(event):
+        reply = await event.get_reply_message()
+        if not reply or not reply.media:
+            await helpers.temp(event, helpers.wm("❌ Reply ke stiker yang mau dijadikan foto."))
+            await event.delete()
+            return
+        doc = reply.document
+        mime = (doc.mime_type or "").lower() if doc else ""
+        if doc and mime == "application/x-tgsticker":
+            await helpers.temp(event, helpers.wm("❌ Stiker animasi (TGS) belum didukung gunakan stiker biasa."))
+            await event.delete()
+            return
+        if doc and mime not in ("image/webp", "image/png", "image/jpeg", "image/gif", ""):
+            await helpers.temp(event, helpers.wm(f"❌ Bukan stiker/gambar (mime: {mime})."))
+            await event.delete()
+            return
+        try:
+            raw_path = Path(tempfile.gettempdir()) / f"stk_{event.id}.{'webp' if mime == 'image/webp' else 'img'}"
+            await client.download_media(reply, file=str(raw_path))
+            out = Path(tempfile.gettempdir()) / f"stk_{event.id}.jpg"
+            exe = _ffmpeg_exe()
+            if exe:
+                res = subprocess.run(
+                    [exe, "-y", "-i", str(raw_path), "-vf", "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2", "-q:v", "3", str(out)],
+                    capture_output=True,
+                )
+                if res.returncode != 0 or not out.exists():
+                    res = subprocess.run(
+                        [exe, "-y", "-i", str(raw_path), "-q:v", "3", str(out)],
+                        capture_output=True,
+                    )
+            if not out.exists():
+                out = raw_path
+            if not out.exists() or out.stat().st_size == 0:
+                await helpers.temp(event, helpers.wm("❌ Gagal konversi (ffmpeg tidak tersedia)."))
+                await event.delete()
+                return
+            await client.send_file(event.chat_id, str(out), caption=helpers.wm("🖼 Stiker -> foto."))
+            out.unlink(missing_ok=True)
+            raw_path.unlink(missing_ok=True)
+        except Exception:
+            await helpers.temp(event, helpers.wm("❌ Gagal proses stiker."))
+        await event.delete()
 
     # ---------- DOWNLOADER (yt-dlp, opsional) ----------
     async def download_url(url, chat_id, audio=False):

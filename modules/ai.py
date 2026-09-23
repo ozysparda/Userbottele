@@ -161,19 +161,37 @@ async def _gemini_img(prompt, image_b64="", mime="image/jpeg"):
     )
 
     def _call():
-        with urllib.request.urlopen(req, timeout=180) as resp:
-            return json.loads(resp.read().decode())
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                return json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            try:
+                body = e.read().decode("utf-8", "replace")[:400]
+            except Exception:
+                body = str(e)
+            print(f"[AI.IMG] HTTP {e.code}: {body}")
+            return {"_error": f"{e.code} {body}"}
+        except Exception as e:
+            print(f"[AI.IMG] {e}")
+            return {"_error": str(e)[:200]}
 
-    try:
-        data = await asyncio.to_thread(_call)
-    except Exception:
-        return "❌ Gagal memproses foto (rate limit / API down).", []
+    data = await asyncio.to_thread(_call)
+    if data.get("_error"):
+        return f"❌ Gagal proses foto: {data['_error']}", []
+    if not data.get("candidates") or not data["candidates"][0].get("content", {}).get("parts"):
+        print(f"[AI.IMG] tidak ada parts: {json.dumps(data)[:300]}")
+        return "❌ API tidak mengembalikan hasil (prompt diblokir?).", []
 
     images = []
-    for part in data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
+    for part in data["candidates"][0]["content"]["parts"]:
         if "inlineData" in part:
             try:
                 images.append(base64.b64decode(part["inlineData"]["data"]))
+            except Exception:
+                pass
+        if "inline_data" in part:
+            try:
+                images.append(base64.b64decode(part["inline_data"]["data"]))
             except Exception:
                 pass
     if not images:
