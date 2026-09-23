@@ -138,9 +138,6 @@ HELP = {
     ),
 }
 
-_bot_username = None
-
-
 def build_help_text(category=None):
     if category and category in HELP:
         title, items = HELP[category]
@@ -197,68 +194,75 @@ def _buttons(category=None):
     ]
 
 
-def attach():
-    """Pasang handler inline & callback ke bot client (jika ada)."""
-    global _bot_username
-    bot = state.bot
-    if bot is None:
-        return False
-
-    @bot.on(events.InlineQuery)
-    async def on_inline(e):
-        if state.owner_id and e.query.user_id != state.owner_id:
-            await e.answer([], cache_time=0)
-            return
-        q = e.text.strip().lower()
-        print(f"[INLINE] query diterima: '{q}'")
-        if q in ("menu", "help"):
-            result = e.builder.article(
-                title="Bantuan Userbot",
-                text=build_help_text(),
-                buttons=_buttons(),
-                parse_mode="md",
-            )
-            await e.answer([result], cache_time=0)
-        elif q.startswith("stop:"):
-            task = q.split(":", 1)[1] if ":" in q else "gcast"
-            result = e.builder.article(
-                title="Stop",
-                text="Proses berjalan...",
-                buttons=[[stop_button(task)]],
-                parse_mode="md",
-            )
-            await e.answer([result], cache_time=0)
+async def _on_callback(e):
+    owner_id = state.owner_id
+    if owner_id and e.query.user_id != owner_id:
+        await e.answer("⛔ Hanya owner yang bisa.", alert=True)
+        return
+    if not e.data:
+        return
+    data = e.data.decode(errors="ignore")
+    if data.startswith("help:"):
+        target = data.split(":", 1)[1]
+        if target == "root":
+            await e.edit(build_help_text(), buttons=_buttons())
+        elif target in HELP:
+            await e.edit(build_help_text(target), buttons=_buttons(target))
         else:
-            await e.answer([], cache_time=0)
+            await e.answer("Unknown", alert=True)
+    elif data.startswith("stop:"):
+        task = data.split(":", 1)[1]
+        if task in state.stop:
+            state.stop[task] = True
+            await e.answer("Stopped", alert=True)
+            try:
+                await e.edit("⛔ Proses dihentikan.")
+            except Exception:
+                pass
+        else:
+            await e.answer("Unknown task", alert=True)
 
-    @bot.on(events.CallbackQuery)
-    async def on_callback(e):
-        owner_id = state.owner_id
-        if owner_id and e.query.user_id != owner_id:
-            await e.answer("⛔ Hanya owner yang bisa.", alert=True)
-            return
-        if not e.data:
-            return
-        data = e.data.decode(errors="ignore")
-        if data.startswith("help:"):
-            target = data.split(":", 1)[1]
-            if target == "root":
-                await e.edit(build_help_text(), buttons=_buttons())
-            elif target in HELP:
-                await e.edit(build_help_text(target), buttons=_buttons(target))
+
+def attach():
+    """Pasang handler callback ke client user + bot (jika ada)."""
+    client = state.client
+
+    @client.on(events.CallbackQuery)
+    async def _cb_user(e):
+        await _on_callback(e)
+
+    bot = state.bot
+    if bot is not None:
+        @bot.on(events.CallbackQuery)
+        async def _cb_bot(e):
+            await _on_callback(e)
+
+        @bot.on(events.InlineQuery)
+        async def on_inline(e):
+            if state.owner_id and e.query.user_id != state.owner_id:
+                await e.answer([], cache_time=0)
+                return
+            q = e.text.strip().lower()
+            print(f"[INLINE] query diterima: '{q}'")
+            if q in ("menu", "help"):
+                result = e.builder.article(
+                    title="Bantuan Userbot",
+                    text=build_help_text(),
+                    buttons=_buttons(),
+                    parse_mode="md",
+                )
+                await e.answer([result], cache_time=0)
+            elif q.startswith("stop:"):
+                task = q.split(":", 1)[1] if ":" in q else "gcast"
+                result = e.builder.article(
+                    title="Stop",
+                    text="Proses berjalan...",
+                    buttons=[[stop_button(task)]],
+                    parse_mode="md",
+                )
+                await e.answer([result], cache_time=0)
             else:
-                await e.answer("Unknown", alert=True)
-        elif data.startswith("stop:"):
-            task = data.split(":", 1)[1]
-            if task in state.stop:
-                state.stop[task] = True
-                await e.answer("Stopped", alert=True)
-                try:
-                    await e.edit("⛔ Proses dihentikan.")
-                except Exception:
-                    pass
-            else:
-                await e.answer("Unknown task", alert=True)
+                await e.answer([], cache_time=0)
 
     return True
 
@@ -268,21 +272,12 @@ def stop_button(task):
 
 
 async def send_menu(chat_id):
-    """Kirim menu bantuan bertombol ke chat. False bila bot tidak tersedia."""
-    global _bot_username
+    """Kirim bantuan bertombol langsung dari akun user. False bila client mati."""
     client = state.client
-    bot = state.bot
-    if client is None or bot is None:
+    if client is None:
         return False
     try:
-        if not _bot_username:
-            me = await bot.get_me()
-            _bot_username = me.username
-        results = await client.inline_query(_bot_username, "menu")
-        if not results:
-            print("[INLINE] query 'menu' menghasilkan 0 result")
-            return False
-        await results[0].click(chat_id, hide_via=True)
+        await client.send_message(chat_id, build_help_text(), buttons=_buttons(), parse_mode="md")
         return True
     except Exception as e:
         print(f"[INLINE] send_menu gagal: {type(e).__name__}: {e}")
@@ -291,20 +286,16 @@ async def send_menu(chat_id):
 
 
 async def send_stop_panel(chat_id, task):
-    """Kirim pesan dengan tombol STOP untuk task (gcast/jgc)."""
-    global _bot_username
+    """Kirim pesan dengan tombol STOP untuk task (gcast/jgc) langsung dari akun user."""
     client = state.client
-    bot = state.bot
-    if client is None or bot is None:
+    if client is None:
         return False
     try:
-        if not _bot_username:
-            me = await bot.get_me()
-            _bot_username = me.username
-        results = await client.inline_query(_bot_username, f"stop:{task}")
-        if not results:
-            return False
-        await results[0].click(chat_id, hide_via=True)
+        await client.send_message(
+            chat_id,
+            f"⚙️ Proses **{task}** sedang berjalan...",
+            buttons=[[stop_button(task)]],
+        )
         return True
     except Exception as e:
         print(f"[INLINE] send_stop_panel gagal: {type(e).__name__}: {e}")

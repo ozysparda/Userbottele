@@ -8,6 +8,12 @@ import io
 import os
 
 from telethon import events
+from telethon.tl.types import (
+    DocumentAttributeFilename,
+    DocumentAttributeSticker,
+    InputMediaUploadedDocument,
+    InputStickerSetEmpty,
+)
 
 from core import helpers
 
@@ -127,14 +133,14 @@ def _render(name, text, avatar_im):
     line_h = int(size_l * 1.35)
     img_h = PAD + max(AVATAR, line_h) + 14 + line_h * len(lines) + PAD
     img_h = max(img_h, 200)
-    img = Image.new("RGBA", (WIDTH, img_h), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
+    card = Image.new("RGBA", (WIDTH, img_h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(card)
     d.rounded_rectangle((0, 0, WIDTH - 1, img_h - 1), radius=RADIUS, fill=FOL_BG)
     d.rounded_rectangle((2, 2, WIDTH - 3, img_h - 3), radius=RADIUS, outline=(54, 62, 70, 255), width=1)
     d.line((PAD, PAD + AVATAR + 12, WIDTH - PAD, PAD + AVATAR + 12), fill=(54, 62, 70, 255), width=1)
 
     av = avatar_im or _default_avatar(name[:1])
-    img.paste(av, (PAD, PAD), av)
+    card.paste(av, (PAD, PAD), av)
     d.text((PAD + AVATAR + 16, PAD + AVATAR // 2 - size_l // 2), name_txt,
            font=font_name, fill=NAME_COLOR)
 
@@ -142,7 +148,21 @@ def _render(name, text, avatar_im):
     for ln in lines:
         d.text((PAD, y), ln, font=font_msg, fill=TEXT_COLOR)
         y += line_h
-    return img
+
+    SCALE = 512
+    if card.width > SCALE or card.height > SCALE:
+        ratio = min(SCALE / card.width, SCALE / card.height)
+        card = card.resize(
+            (max(1, int(card.width * ratio)), max(1, int(card.height * ratio))),
+            Image.LANCZOS,
+        )
+    canvas = Image.new("RGBA", (SCALE, SCALE), (0, 0, 0, 0))
+    canvas.paste(
+        card,
+        ((SCALE - card.width) // 2, (SCALE - card.height) // 2),
+        card,
+    )
+    return canvas
 
 
 def load():
@@ -185,8 +205,21 @@ def load():
             buf = io.BytesIO()
             img.convert("RGBA").save(buf, format="WEBP")
             buf.seek(0)
-            await client.send_file(event.chat_id, buf, file_name="sticker.webp",
-                                   force_document=False)
+            uploaded = await client.upload_file(buf, file_name="sticker.webp")
+            media = InputMediaUploadedDocument(
+                file=uploaded,
+                mime_type="image/webp",
+                attributes=[
+                    DocumentAttributeSticker(
+                        alt="",
+                        stickerset=InputStickerSetEmpty(),
+                        mask=False,
+                    ),
+                    DocumentAttributeFilename("sticker.webp"),
+                ],
+                force_file=False,
+            )
+            await client.send_media(event.chat_id, media)
             try:
                 await note.delete()
             except Exception:
