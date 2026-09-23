@@ -138,6 +138,9 @@ HELP = {
     ),
 }
 
+_bot_username = None
+
+
 def build_help_text(category=None):
     if category and category in HELP:
         title, items = HELP[category]
@@ -272,10 +275,24 @@ def stop_button(task):
 
 
 async def send_menu(chat_id):
-    """Kirim bantuan bertombol langsung dari akun user. False bila client mati."""
+    """Kirim bantuan bertombol. Prioritas: via bot inline (ada 'via @bot'),
+    fallback kirim langsung dari akun user biar tombol selalu muncul."""
     client = state.client
+    bot = state.bot
     if client is None:
         return False
+    if bot is not None:
+        try:
+            global _bot_username
+            if not _bot_username:
+                me = await bot.get_me()
+                _bot_username = me.username
+            results = await client.inline_query(_bot_username, "menu")
+            if results:
+                await results[0].click(chat_id, hide_via=False)
+                return True
+        except Exception as e:
+            print(f"[INLINE] send_menu via bot gagal: {type(e).__name__}: {e}")
     try:
         await client.send_message(chat_id, build_help_text(), buttons=_buttons(), parse_mode="md")
         return True
@@ -286,10 +303,23 @@ async def send_menu(chat_id):
 
 
 async def send_stop_panel(chat_id, task):
-    """Kirim pesan dengan tombol STOP untuk task (gcast/jgc) langsung dari akun user."""
+    """Kirim panel STOP via bot inline dulu, fallback langsung dari akun user."""
     client = state.client
+    bot = state.bot
     if client is None:
         return False
+    if bot is not None:
+        try:
+            global _bot_username
+            if not _bot_username:
+                me = await bot.get_me()
+                _bot_username = me.username
+            results = await client.inline_query(_bot_username, f"stop:{task}")
+            if results:
+                await results[0].click(chat_id, hide_via=False)
+                return True
+        except Exception as e:
+            print(f"[INLINE] send_stop_panel via bot gagal: {type(e).__name__}: {e}")
     try:
         await client.send_message(
             chat_id,
