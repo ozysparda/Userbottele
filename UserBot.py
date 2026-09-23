@@ -109,6 +109,9 @@ def _dispatch_workflow(tok):
 
 
 async def _reboot_scheduler():
+    if not os.environ.get("GITHUB_ACTIONS"):
+        print("[SCHEDULER] Mode lokal — self-dispatch nonaktif.")
+        return
     run_min = config.get_int("RUN_MINUTES", 360)
     lead = config.get_int("REBOOT_LEAD", 240)
     target = max(int(run_min) * 60 - int(lead), 60)
@@ -153,6 +156,13 @@ async def _interactive_login(client):
         await client.connect()
     if await client.is_user_authorized():
         return True
+    try:
+        if not sys.stdin.isatty():
+            print("[X] STRING_SESSION tidak valid dan stdin bukan terminal (panel/GitHub).")
+            print("    Gunakan panel tab 'Akun' atau jalankan: python UserBot.py --string-session")
+            return False
+    except Exception:
+        return False
     print("[!] Login diperlukan.")
     phone = input("Masukkan nomor HP (+62xxxxxxxxxx): ").strip()
     try:
@@ -247,6 +257,7 @@ async def _main():
     state.flood.start()
 
     asyncio.create_task(_reboot_scheduler())
+    asyncio.create_task(_watch_stop_file())
 
     if not (await _interactive_login(user)):
         sys.exit(1)
@@ -276,6 +287,58 @@ async def _main():
         clients.append(state.bot.run_until_disconnected())
     await asyncio.gather(*clients)
 
+    if state.shutting_down:
+        print("[OK] Userbot dihentikan.")
+
+
+_MAIN_LOOP = None
+
+
+def request_shutdown():
+    """Minta userbot berhenti (dipanggil dari panel/thread lain)."""
+    state.shutting_down = True
+    loop = _MAIN_LOOP
+    if loop and loop.is_running():
+        try:
+            loop.call_soon_threadsafe(_disconnect_clients)
+        except Exception:
+            pass
+
+
+def _disconnect_clients():
+    client = state.client
+    bot = state.bot
+    for c in (bot, client):
+        if c is not None and c.is_connected():
+            asyncio.ensure_future(c.disconnect())
+
+
+def _stop_file():
+    return Path(__file__).resolve().parent / "data" / ".stop"
+
+
+def _clear_stop_file():
+    try:
+        _stop_file().unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+async def _watch_stop_file():
+    while not state.shutting_down:
+        if _stop_file().exists():
+            print("[PANEL] Stop file terdeteksi, mematikan...")
+            request_shutdown()
+            return
+        await asyncio.sleep(0.5)
+
+
+def _run_main():
+    global _MAIN_LOOP
+    _MAIN_LOOP = asyncio.get_event_loop()
+    _clear_stop_file()
+    asyncio.run(_main())
+
 
 def main():
     if "--string-session" in sys.argv:
@@ -283,6 +346,13 @@ def main():
         return
     if "--check" in sys.argv:
         _run_checks()
+        return
+    if "--headless" in sys.argv:
+        asyncio.run(_main())
+        return
+    if "--panel" in sys.argv or getattr(sys, "frozen", False):
+        from panel_app import run_panel
+        run_panel()
         return
     asyncio.run(_main())
 
