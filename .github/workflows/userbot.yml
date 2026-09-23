@@ -40,10 +40,18 @@ jobs:
       - name: Install dependensi
         run: pip install --no-input -q -r requirements.txt
 
+      - name: Install opencode CLI (untuk fitur .ai)
+        run: npm install --no-fund --no-audit -g opencode-ai@1.18.32
+
       - name: Jalankan userbot
         run: python -u UserBot.py
         env:
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: ${{ secrets.GIST_ID }}
+          GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+          AI_PROVIDER: opencode
+          OPENCODE_MODEL: ${{ secrets.OPENCODE_MODEL }}
+          OPENCODE_AUTH_JSON: ${{ secrets.OPENCODE_AUTH_JSON }}
           RUN_MINUTES: "360"
           REBOOT_LEAD: "240"

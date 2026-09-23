@@ -71,6 +71,12 @@ LOG_CHAT_ID = get_int("LOG_CHAT_ID", 0)
 # ===== AI =====
 GEMINI_KEY = get("GEMINI_KEY", "")
 GEMINI_MODEL = get("GEMINI_MODEL", "gemini-3.6-flash")
+# Provider AI: opencode | gemini | auto (auto = pakai opencode bila terpasang)
+AI_PROVIDER = get("AI_PROVIDER", "auto")
+# Model untuk opencode, misal google/gemini-3.6-flash atau opencode/big-pickle
+OPENCODE_MODEL = get("OPENCODE_MODEL", "")
+# Isi JSON file auth opencode (untuk provider yang butuh login, misal opencode/big-pickle)
+OPENCODE_AUTH_JSON = get("OPENCODE_AUTH_JSON", "")
 
 # ===== ANTI-BAN / RATE LIMIT =====
 SEND_RATE = get_int("SEND_RATE", 30)
