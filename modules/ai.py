@@ -214,8 +214,18 @@ def load():
             await event.delete()
             return
         prompt = event.message.message.split(None, 1)[1].strip()
-        note = await event.respond(helpers.wm("🎨 Menggambar..."))
-        err, images = await _gemini_img(prompt)
+        reply = await event.get_reply_message()
+        image_b64 = ""
+        mode = "🎨 Menggambar..."
+        if reply and reply.photo:
+            try:
+                img = await client.download_media(reply, file=bytes)
+                image_b64 = base64.b64encode(img).decode()
+                mode = "✏️ Mengedit foto..."
+            except Exception:
+                image_b64 = ""
+        note = await event.respond(helpers.wm(mode))
+        err, images = await _gemini_img(prompt, image_b64)
         if err:
             try:
                 await note.delete()
