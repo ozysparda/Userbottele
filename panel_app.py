@@ -7,6 +7,7 @@ Fitur:
 - Dashboard tombol: Start / Stop / Simpan Config / Login Akun
 - Tab Config (.env), Akun (login OTP), dan Log live
 """
+import asyncio
 import subprocess
 import sys
 import threading
@@ -87,10 +88,18 @@ class PanelApp:
         self.root = root
         self.proc = None
         self.entries = {}
+        # Dedicated event loop thread untuk telethon (async API)
+        self._loop = asyncio.new_event_loop()
+        threading.Thread(target=self._loop.run_forever, daemon=True).start()
         self._setup_style()
         self._build()
         self._load_to_form()
         self._refresh_status()
+
+    def _run(self, coro, timeout=60):
+        # jalankan coroutine di loop thread panel, blocking sampai selesai
+        fut = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return fut.result(timeout)
 
     # ---------- Style & Layout ----------
     def _setup_style(self):
@@ -313,8 +322,8 @@ class PanelApp:
                 from telethon import TelegramClient
                 client = TelegramClient(StringSession(), api_id, api_hash,
                                          flood_sleep_threshold=10)
-                client.connect()
-                client.send_code_request(phone)
+                self._run(client.connect(), timeout=30)
+                self._run(client.send_code_request(phone), timeout=30)
                 self._akun_phone = phone
                 self._akun_client = client
                 self.root.after(0, self._akun_code_ready)
@@ -349,14 +358,14 @@ class PanelApp:
                     raise RuntimeError("Sesi login hilang, coba kirim kode lagi.")
                 from telethon.errors import SessionPasswordNeededError
                 try:
-                    client.sign_in(phone, code=code)
+                    self._run(client.sign_in(phone, code=code), timeout=30)
                 except SessionPasswordNeededError:
                     if not password:
                         raise
-                    client.sign_in(password=password)
-                session = client.session.save()
-                me = client.get_me()
-                client.disconnect()
+                    self._run(client.sign_in(password=password), timeout=30)
+                session = self._run(client.session.save(), timeout=15)
+                me = self._run(client.get_me(), timeout=30)
+                self._run(client.disconnect(), timeout=15)
                 self._akun_client = None
                 self.root.after(0, self._akun_logged_in, session, me)
             except SessionPasswordNeededError:
