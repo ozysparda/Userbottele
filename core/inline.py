@@ -65,6 +65,16 @@ HELP = {
             (".savelist", "Daftar grup auto-save"),
             (".antidel on/off", "Anti-delete (simpan pesan dihapus)"),
             (".dl <url>", "Download video/audio (yt-dlp)"),
+            (".toimg", "Reply stiker -> jadi foto (JPG)"),
+            (".sticker / .stk", "Reply pesan -> kartu stiker (foto+nama+text)"),
+        ],
+    ),
+    "access": (
+        "🔓 AKSES",
+        [
+            (".giveaccess <id|@username> <menit> (atau .ga, reply juga bisa)", "Beri akses command sementara"),
+            (".revokeaccess <id> (atau .ra)", "Cabut akses"),
+            (".accesslist", "Daftar akses aktif + sisa waktu"),
         ],
     ),
     "ai": (
@@ -151,6 +161,7 @@ def build_help_text(category=None):
         "👥 Join Grup\n"
         "🔇 Notifikasi\n"
         "🎙️ Voice Chat\n"
+        "🔓 Akses\n"
         "📊 Informasi\n\n"
         f"Prefix: `{config.PREFIX}`"
     )
@@ -178,6 +189,9 @@ def _buttons(category=None):
         ],
         [
             Button.inline("🎙️ Voice Chat", "help:vc"),
+            Button.inline("🔓 Akses", "help:access"),
+        ],
+        [
             Button.inline("📊 Info", "help:info"),
         ],
     ]
