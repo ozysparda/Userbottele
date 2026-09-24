@@ -20,7 +20,13 @@ except ImportError:
     print("Tkinter tidak tersedia. Install Python dari python.org (bukan Windows Store).")
     sys.exit(1)
 
-BASE_DIR = Path(__file__).resolve().parent
+def _base_dir():
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+BASE_DIR = _base_dir()
 ENV_PATH = BASE_DIR / ".env"
 
 FIELDS = [
@@ -266,6 +272,7 @@ class PanelApp:
     def _build_akun_tab(self, parent):
         self._akun_phone = None
         self._akun_client = None
+        self._akun_qr = None
         pad = ttk.Frame(parent, style="Card.TFrame", padding=14)
         pad.pack(fill="both", expand=True)
 
@@ -297,11 +304,97 @@ class PanelApp:
         tk.Label(pad, textvariable=self.akun_status, font=("Segoe UI", 9, "bold"),
                  bg=CARD, fg=AMBER).pack(anchor="w")
 
+        # ===== QR Login =====
+        ttk.Separator(pad).pack(fill="x", pady=(14, 8))
+        tk.Label(pad, text="— atau login cepat via QR —", font=("Segoe UI", 10, "bold"),
+                 bg=CARD, fg=TEXT).pack(anchor="w", pady=(0, 6))
+        self.btn_qr = ttk.Button(pad, text="📲  Tampilkan QR Login", command=self._akun_qr_start)
+        self.btn_qr.pack(anchor="w", pady=(0, 8))
+
+        self.qr_canvas = tk.Canvas(pad, width=220, height=220, bg="white",
+                                   highlightthickness=1, highlightbackground=BORDER)
+        self.qr_canvas.pack(anchor="w")
+
     def _entry(self, parent, secret=False):
         return tk.Entry(parent, width=50, bg="#0b1526", fg=TEXT, insertbackground=TEXT,
                         relief="flat", font=("Segoe UI", 10),
                         highlightthickness=1, highlightbackground=BORDER,
                         highlightcolor=BLUE, show="*" if secret else None)
+
+    def _api_creds(self):
+        api_id = int(self.entries["API_ID"].get().strip() or 0)
+        api_hash = self.entries["API_HASH"].get().strip()
+        if not api_id or not api_hash:
+            messagebox.showerror("Kurang", "API_ID dan API_HASH harus terisi di tab Config.")
+            return None, None
+        return api_id, api_hash
+
+    def _akun_qr_start(self):
+        api_id, api_hash = self._api_creds()
+        if not api_id:
+            return
+        self.akun_status.set("⏳ Menyiapkan QR...")
+        self.btn_qr.config(state="disabled")
+        self.qr_canvas.delete("all")
+
+        def work():
+            try:
+                from telethon.sessions import StringSession
+                from telethon import TelegramClient
+                client = TelegramClient(StringSession(), api_id, api_hash,
+                                         flood_sleep_threshold=10)
+                self._run(client.connect(), timeout=30)
+                qr = self._run(client.qr_login(), timeout=30)
+                self._akun_qr = qr
+                self._akun_client = client
+                self.root.after(0, self._akun_qr_show, qr.url)
+            except Exception as e:
+                self.root.after(0, self._akun_qr_fail, str(e))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _akun_qr_show(self, url):
+        try:
+            import segno
+            qr = segno.make(url, error="m")
+            matrix = qr.matrix
+            n = len(matrix)
+            scale = min(210 // max(n, 1), 10)
+            size = n * scale
+            cx = 110 - size // 2
+            cy = 110 - size // 2
+            self.qr_canvas.delete("all")
+            for y, row in enumerate(matrix):
+                for x, cell in enumerate(row):
+                    if cell:
+                        self.qr_canvas.create_rectangle(
+                            cx + x * scale, cy + y * scale,
+                            cx + (x + 1) * scale, cy + (y + 1) * scale,
+                            fill="black", outline="")
+            self.akun_status.set("📲 Scan QR dengan Telegram HP: Settings → Devices → Scan QR")
+            self._akun_wait_qr()
+        except Exception as e:
+            self._akun_qr_fail(f"Gagal rendering QR: {e}")
+
+    def _akun_wait_qr(self):
+        def work():
+            try:
+                me = self._run(self._akun_qr.wait(timeout=150), timeout=180)
+                if self._akun_client is None:
+                    return
+                session = self._run(self._akun_client.session.save(), timeout=15)
+                self._run(self._akun_client.disconnect(), timeout=15)
+                self._akun_client = None
+                self.root.after(0, self._akun_logged_in, session, me)
+            except Exception as e:
+                self.root.after(0, self._akun_qr_fail, f"QR timeout/dibatalkan: {e}")
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _akun_qr_fail(self, err):
+        self.btn_qr.config(state="normal")
+        self.akun_status.set(f"❌ {err}")
+        self.qr_canvas.delete("all")
 
     def _akun_send_code(self):
         phone = self.akun_phone_entry.get().strip()
