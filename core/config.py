@@ -1,8 +1,17 @@
 """Konfigurasi userbot. Membaca dari file .env (jika ada) + environment variables."""
 import os
+import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+
+def _base_dir():
+    if getattr(sys, "frozen", False):
+        # mode exe: .env & data ikut di folder exe, bukan folder temp PyInstaller
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+BASE_DIR = _base_dir()
 
 VERSION = "2.1.0"
 

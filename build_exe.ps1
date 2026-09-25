@@ -4,43 +4,28 @@
 
 $ErrorActionPreference = "Stop"
 
-if (-not (Get-Command pyinstaller -ErrorAction SilentlyContinue)) {
+try {
+    python -m PyInstaller --version | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "not installed" }
+} catch {
     Write-Host "[!] PyInstaller belum terinstall. Install dulu:" -ForegroundColor Yellow
     Write-Host "    pip install pyinstaller"
     exit 1
 }
 
 $VERSION = "2.1.0"
-$VER = $VERSION.Replace(".", ",")
 
-if (-not (Test-Path "build")) { New-Item -ItemType Directory -Path "build" | Out-Null }
 if (-not (Test-Path "dist"))  { New-Item -ItemType Directory -Path "dist"  | Out-Null }
-
-# Version resource supaya Windows menampilkan versi di properties
-$verFile = "build\ver.txt"
-@"
-VSVersionInfo(
-  ffi=FixedFileInfo(filevers=($VER), prodvers=($VER),
-    mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
-  kids=[StringFileInfo([StringTable('040904b0', [StringStruct('CompanyName','Userbottele'),
-    StringStruct('FileDescription','Userbot Panel'), StringStruct('FileVersion','$VERSION'),
-    StringStruct('InternalName','UserbotPanel'), StringStruct('OriginalFilename','UserbotPanel.exe'),
-    StringStruct('ProductName','UserbotPanel'), StringStruct('ProductVersion','$VERSION')])]),
-  VarFileInfo([VarStruct('Translation',[1033,1200])])]
-"@ | Out-File -FilePath $verFile -Encoding ascii
 
 Write-Host "==> Building UserbotPanel.exe v$VERSION ..." -ForegroundColor Cyan
 
-pyinstaller --noconfirm --clean `
+python -m PyInstaller --noconfirm --clean `
     --name "UserbotPanel" `
     --onefile `
     --windowed `
-    --icon NONE `
-    --version-file "build\ver.txt" `
     --collect-all telethon `
     --exclude-module pytgcalls `
     --exclude-module pycryptodome `
-    --exclude-module aiohttp `
     --paths "." `
     --add-data ".env.example;." `
     UserBot.py
@@ -48,6 +33,12 @@ pyinstaller --noconfirm --clean `
 if (-not (Test-Path "dist\UserbotPanel.exe")) {
     Write-Host "[X] Build gagal - dist\UserbotPanel.exe tidak ditemukan." -ForegroundColor Red
     exit 1
+}
+
+# Salin .env ke folder exe supaya mode frozen membaca config di folder sendiri
+if (Test-Path ".env") {
+    Copy-Item ".env" "dist\.env" -Force
+    Write-Host "[OK] .env disalin ke dist\.env" -ForegroundColor Green
 }
 
 Write-Host ""

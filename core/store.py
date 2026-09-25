@@ -1,10 +1,14 @@
 """Penyimpanan JSON yang aman (atomic write) untuk data userbot."""
 import json
 import os
+import sys
 import threading
 from pathlib import Path
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+if getattr(sys, "frozen", False):
+    DATA_DIR = Path(sys.executable).resolve().parent / "data"
+else:
+    DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
 _lock = threading.Lock()

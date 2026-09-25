@@ -314,7 +314,7 @@ def _disconnect_clients():
 
 
 def _stop_file():
-    return Path(__file__).resolve().parent / "data" / ".stop"
+    return config.BASE_DIR / "data" / ".stop"
 
 
 def _clear_stop_file():
