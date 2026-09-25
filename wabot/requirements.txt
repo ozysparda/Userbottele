@@ -1,0 +1,2 @@
+pyaileys>=0.1.5
+segno>=1.6.0

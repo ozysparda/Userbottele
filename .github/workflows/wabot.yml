@@ -1,0 +1,43 @@
+name: wabot-24-7
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: wabot
+  cancel-in-progress: false
+
+jobs:
+  wabot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-wa-${{ runner.os }}-${{ hashFiles('wabot/requirements.txt') }}
+
+      - name: Install dependensi
+        run: pip install --no-input -q -r wabot/requirements.txt
+
+      - name: Jalankan WhatsApp bot
+        run: python -u wabot/wabot.py
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+          WA_ALLOWED: ${{ secrets.WA_ALLOWED }}

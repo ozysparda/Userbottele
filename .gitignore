@@ -173,3 +173,8 @@ data/
 qr_codes/
 saved/
 downloads/
+
+# WhatsApp userbot
+wabot/auth/
+wabot/*.sqlite3
+
