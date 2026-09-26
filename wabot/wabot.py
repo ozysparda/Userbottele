@@ -2070,6 +2070,10 @@ class BotRestart(Exception):
     """Dipicu saat bot harus restart in-process (koneksi mati lama, dsb)."""
 
 
+class CleanExit(SystemExit):
+    """Keluar total tanpa restart in-process (mis. QR timeout, sinyal user)."""
+
+
 _EXIT_AFTER_REBOOT = False
 
 
@@ -2093,19 +2097,17 @@ async def main():
         str(AUTH_DIR), store_path=str(CACHE_PATH)
     )
     connected = asyncio.Event()
-    last_open = [0.0]
-    seen_connected = [False]
+    last_close = [0.0]
 
     async def _conn_watchdog():
-        """Restart in-process kalau koneksi mati >90 detik (anti hang)."""
+        """Restart in-process kalau pyaileys emit close dan tak open lagi >60s."""
         while not stop.is_set():
-            if seen_connected[0] and last_open[0]:
-                idle = time.monotonic() - last_open[0]
-                if idle > 90:
-                    log.warning("koneksi mati %ds, restart in-process...", int(idle))
-                    dead.set()
-                    return
-            await asyncio.sleep(15)
+            if last_close[0] and (time.monotonic() - last_close[0]) > 60:
+                idle = int(time.monotonic() - last_close[0])
+                log.warning("connection close tak kunjung open (%ds), restart in-process...", idle)
+                dead.set()
+                return
+            await asyncio.sleep(10)
 
     async def on_update(update):
         if update.qr:
@@ -2117,8 +2119,9 @@ async def main():
             log.info("connection=%s is_new_login=%s", update.connection, update.is_new_login)
             if update.connection == "open":
                 connected.set()
-                last_open[0] = time.monotonic()
-                seen_connected[0] = True
+                last_close[0] = 0.0
+            elif update.connection == "close":
+                last_close[0] = time.monotonic()
 
     async def on_creds_update(_creds):
         try:
@@ -2184,9 +2187,9 @@ async def main():
     try:
         await asyncio.wait_for(connected.wait(), timeout=timeout)
     except asyncio.TimeoutError:
-        log.warning("QR timeout tanpa scan; keluar. Jalankan lagi utk QR baru.")
+        log.warning("QR timeout tanpa scan; keluar total (watchdog akan redispatch).")
         await client.disconnect()
-        return 0
+        raise CleanExit(0)
 
     me = getattr(getattr(client.socket, "auth", None), "creds", None)
     if me and getattr(me, "me", None) and me.me.id:
@@ -2276,6 +2279,10 @@ if __name__ == "__main__":
             rc = loop.run_until_complete(main())
         except KeyboardInterrupt:
             rc = 0
+            break
+        except CleanExit as e:
+            rc = e.code if isinstance(e.code, int) else 1
+            log.info("Clean exit (rc=%s).", rc)
             break
         except BaseException as e:  # crash apapun -> restart in-process
             log.exception("Bot crash (%s); restart dalam 5 detik...", e)
