@@ -2021,6 +2021,7 @@ async def _sched_loop(client, stop: asyncio.Event):
 
 async def _reboot_scheduler(client, stop: asyncio.Event):
     """Dispatch workflow baru sebelum batas ~6 jam; update bio restart."""
+    global _EXIT_AFTER_REBOOT
     if os.environ.get("GITHUB_ACTIONS") != "true":
         return
     run_min = int(os.environ.get("WA_RUN_MINUTES", "355"))
@@ -2038,6 +2039,7 @@ async def _reboot_scheduler(client, stop: asyncio.Event):
             ecp = await asyncio.to_thread(_dispatch_run, token)
             if ecp is not None:
                 log.info("Dispatch reboot WA berhasil: %s", ecp)
+                _EXIT_AFTER_REBOOT = True
                 await _set_bio(client, "restart in ~0 min, will be back in "
                                        f"~{run_min // 60} min")
                 return  # bot baru akan menggantikan (concurrency)
@@ -2064,6 +2066,13 @@ def _dispatch_run(token: str):
         return None
 
 
+class BotRestart(Exception):
+    """Dipicu saat bot harus restart in-process (koneksi mati lama, dsb)."""
+
+
+_EXIT_AFTER_REBOOT = False
+
+
 async def main():
     global _SELF_JID
     _setup_logger()
@@ -2084,6 +2093,19 @@ async def main():
         str(AUTH_DIR), store_path=str(CACHE_PATH)
     )
     connected = asyncio.Event()
+    last_open = [0.0]
+    seen_connected = [False]
+
+    async def _conn_watchdog():
+        """Restart in-process kalau koneksi mati >90 detik (anti hang)."""
+        while not stop.is_set():
+            if seen_connected[0] and last_open[0]:
+                idle = time.monotonic() - last_open[0]
+                if idle > 90:
+                    log.warning("koneksi mati %ds, restart in-process...", int(idle))
+                    dead.set()
+                    return
+            await asyncio.sleep(15)
 
     async def on_update(update):
         if update.qr:
@@ -2095,6 +2117,8 @@ async def main():
             log.info("connection=%s is_new_login=%s", update.connection, update.is_new_login)
             if update.connection == "open":
                 connected.set()
+                last_open[0] = time.monotonic()
+                seen_connected[0] = True
 
     async def on_creds_update(_creds):
         try:
@@ -2187,20 +2211,55 @@ async def main():
     await _set_bio(client, "online")
 
     stop = asyncio.Event()
-    asyncio.create_task(_reboot_scheduler(client, stop))
-    asyncio.create_task(_sched_loop(client, stop))
+    dead = asyncio.Event()
 
+    async def _sched_wrapper():
+        try:
+            await _sched_loop(client, stop)
+        except asyncio.CancelledError:
+            raise
+        except BaseException as e:
+            log.exception("scheduler crash (%s); lanjut tanpa scheduler...", e)
+
+    async def _reboot_wrapper():
+        try:
+            await _reboot_scheduler(client, stop)
+        except asyncio.CancelledError:
+            raise
+        except BaseException as e:
+            log.exception("reboot scheduler crash (%s); lanjut tanpa reboot...", e)
+
+    _conn_watchdog_task = asyncio.create_task(_conn_watchdog())
+    asyncio.create_task(_sched_wrapper())
+    asyncio.create_task(_reboot_wrapper())
+
+    idle_wait = asyncio.create_task(asyncio.Event().wait())
+
+    async def _reboot_finished():
+        while not _EXIT_AFTER_REBOOT and not stop.is_set():
+            await asyncio.sleep(2)
+
+    reboot_wait = asyncio.create_task(_reboot_finished())
+    dead_wait = asyncio.create_task(dead.wait())
     try:
-        await asyncio.Event().wait()
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        pass
+        done, _pending = await asyncio.wait(
+            {idle_wait, reboot_wait, dead_wait},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
     finally:
         stop.set()
+        idle_wait.cancel()
+        reboot_wait.cancel()
+        dead_wait.cancel()
+        _conn_watchdog_task.cancel()
         await _set_bio(client, "offline")
         await auth_state.save_creds()
         _save_auth_snapshot()
-        await client.disconnect()
-    return 0
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+    return 0 if _EXIT_AFTER_REBOOT else 1
 
 
 ALLOWED_SET = set(
@@ -2210,10 +2269,27 @@ ALLOWED_SET = set(
 if __name__ == "__main__":
     log = logging.getLogger("wabot")
     _setup_logger()
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        rc = loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        rc = 0
+    while True:
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            rc = loop.run_until_complete(main())
+        except KeyboardInterrupt:
+            rc = 0
+            break
+        except BaseException as e:  # crash apapun -> restart in-process
+            log.exception("Bot crash (%s); restart dalam 5 detik...", e)
+            rc = 1
+        else:
+            if rc == 0 and _EXIT_AFTER_REBOOT:
+                log.info("Run digantikan run baru; keluar bersih.")
+                break
+            if rc == 0:
+                log.info("Bot berhenti (restart); lanjut ke sesi baru...")
+        if os.environ.get("WABOT_EXIT_ON_CLEAN") == "1":
+            break
+        try:
+            time.sleep(5)
+        except KeyboardInterrupt:
+            break
     raise SystemExit(rc)
