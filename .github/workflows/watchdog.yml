@@ -2,7 +2,7 @@ name: watchdog-restart
 
 on:
   schedule:
-    - cron: "0 */3 * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -20,13 +20,19 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Cek apakah userbot masih jalan
+      - name: Cek status kedua userbot
         id: probe
         run: |
-          n=$(gh api "repos/${{ github.repository }}/actions/runs?workflow_id=userbot.yml&status=in_progress&per_page=1" --jq '.total_count' 2>/dev/null || echo 0)
-          echo "In-progress run userbot: $n"
-          echo "running=$n" >> "$GITHUB_OUTPUT"
+          te=$(gh run list --repo "${{ github.repository }}" --workflow userbot.yml --status in_progress --json databaseId --jq 'length' 2>/dev/null || echo 0)
+          wa=$(gh run list --repo "${{ github.repository }}" --workflow wabot.yml --status in_progress --json databaseId --jq 'length' 2>/dev/null || echo 0)
+          echo "userbot in_progress=$te  wabot in_progress=$wa"
+          echo "telegram=$te" >> "$GITHUB_OUTPUT"
+          echo "whatsapp=$wa" >> "$GITHUB_OUTPUT"
 
-      - name: Dispatch ulang kalau bot mati
-        if: steps.probe.outputs.running == '0'
+      - name: Dispatch Telegram kalau mati
+        if: steps.probe.outputs.telegram == '0'
         run: gh workflow run userbot.yml --repo "${{ github.repository }}"
+
+      - name: Dispatch WhatsApp kalau mati
+        if: steps.probe.outputs.whatsapp == '0'
+        run: gh workflow run wabot.yml --repo "${{ github.repository }}"
