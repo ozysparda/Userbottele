@@ -382,6 +382,9 @@ def _save_auth_snapshot(text: str | None = None):
     if _RESCAN_PENDING:
         log.debug("skip snapshot: sedang QR ulang (jangan timpa session sehat).")
         return
+    if not _gist_lock_mine():
+        log.warning("skip snapshot: lease gist bukan milik proses ini.")
+        return
     try:
         if not (AUTH_DIR / "creds.json").exists():
             log.warning("skip snapshot: belum ada creds (masih QR/login).")
@@ -496,29 +499,55 @@ def _gist_patch(files: dict) -> bool:
 
 def _gist_lock_heartbeat():
     """Tulis timestamp 'last seen' pemegang lease ke gist (renew lease)."""
-    global _GIST_LOCK_HELD
+    global _GIST_LOCK_HELD, _GIST_INSTANCE_ID
     if not _GIST_LOCK_HELD:
         return False
-    ok = _gist_patch({_GIST_LOCK_NAME: {"content": json.dumps({"hb": int(time.time())})}})
+    ok = _gist_patch({_GIST_LOCK_NAME: {"content": json.dumps({
+        "owner": _GIST_INSTANCE_ID, "hb": int(time.time())
+    })}})
     return ok
 
 
-def _gist_lease_lock_acquire(timeout_s: float = 300.0) -> bool:
+def _gist_lock_mine() -> bool:
+    """True jika lease gist saat ini milik kita (anti-timpa session oleh bot lain)."""
+    global _GIST_INSTANCE_ID
+    if not GIST_TOKEN:
+        return True
+    try:
+        files = _gist_list_files()
+        hb_raw = files.get(_GIST_LOCK_NAME)
+        if not hb_raw:
+            return False
+        data = json.loads(hb_raw)
+        return (data.get("owner") or "") == _GIST_INSTANCE_ID and (
+            int(time.time()) - int(data.get("hb") or 0) < _GIST_LOCK_TTL + 60
+        )
+    except Exception as e:
+        log.warning("gist lock mine check error: %s", e)
+        return False
+
+
+def _gist_lease_lock_acquire(timeout_s: float = 600.0) -> bool:
     """Klaim lease lock GLOBAL di gist; tunggu hingga active lease kadaluarsa.
 
-    Lease = file `_instance_lease.json` berisi `hb` (epoch). Bila `hb` berumur
-    <8 mnt dianggap masih alive (proses lain / bekas run yg belum mati). Kita
-    renew tiap 25 dtk lewat _gist_lock_heartbeat. Jika proses itu crash, lease
-    kadaluarsa otomatis dalam 8 mnt -> yang lain boleh maju.
+    Lease = file `_instance_lease.json` berisi `owner`+`hb` (epoch). Bila `hb`
+    berumur <8 mnt dianggap masih alive (proses lain / bekas run yg belum mati).
+    Kita renew tiap 25 dtk lewat _gist_lock_heartbeat. Jika proses itu crash,
+    lease kadaluarsa otomatis dalam 8 mnt -> yang lain boleh maju.
+
+    STRICT: bila gist tidak bisa diperiksa (API error), kita TIDAK maju — tunggu
+    dan retry sampai timeout. Ini menutup celah desync "dua bot sama-sama
+    mengira tidak ada yang pakai" saat gist sedang error.
     """
-    global _GIST_LOCK_HELD
+    global _GIST_LOCK_HELD, _GIST_INSTANCE_ID
     if not GIST_TOKEN:
         _GIST_LOCK_HELD = True  # tanpa gist (dev lokal) biarkan jalan
         return True
     deadline = time.monotonic() + timeout_s
     while True:
-        if time.monotonic() > deadline:
-            log.error("lease lock gist tak bisa dipegang: ada instance lain masih hidup.")
+        remains = deadline - time.monotonic()
+        if remains <= 0:
+            log.error("lease lock gist tak bisa dipegang dalam timeout; menolak start.")
             return False
         try:
             files = _gist_list_files()
@@ -538,25 +567,38 @@ def _gist_lease_lock_acquire(timeout_s: float = 300.0) -> bool:
                 time.sleep(20)
                 continue
             # Lease kosong/kadaluarsa -> tulis milik kita, lalu verifikasi tidak ada yang menimpa.
-            if not _gist_patch({_GIST_LOCK_NAME: {"content": json.dumps({"hb": now})}}):
+            if not _gist_patch({_GIST_LOCK_NAME: {"content": json.dumps({
+                "owner": _GIST_INSTANCE_ID, "hb": now
+            })}}):
+                log.warning("lease lock gist: patch gagal; retry.")
                 time.sleep(10)
                 continue
             files2 = _gist_list_files()
-            verify = None
+            verify_owner = None
+            verify_hb = None
             if _GIST_LOCK_NAME in files2:
                 try:
-                    verify = int(json.loads(files2[_GIST_LOCK_NAME]).get("hb") or 0)
+                    verify_raw = json.loads(files2[_GIST_LOCK_NAME])
+                    verify_owner = verify_raw.get("owner")
+                    verify_hb = int(verify_raw.get("hb") or 0)
                 except Exception:
                     pass
-            if verify is not None and (now - verify) < _GIST_LOCK_TTL and abs(verify - now) < 5:
+            if (
+                verify_owner == _GIST_INSTANCE_ID
+                and verify_hb is not None
+                and (now - verify_hb) < _GIST_LOCK_TTL
+                and abs(verify_hb - now) < 10
+            ):
                 _GIST_LOCK_HELD = True
-                log.info("lease lock gist dipegang (hb=%s).", now)
+                log.info("lease lock gist dipegang (owner=%s, hb=%s).", verify_owner, now)
                 return True
             time.sleep(10)
         except Exception as e:
-            log.warning("lease lock gist error: %s (lanjut tanpa lock global)", e)
-            _GIST_LOCK_HELD = True
-            return True
+            log.warning(
+                "lease lock gist error (%s); retry %ds lagi (STRICT: tak maju tanpa lock)...",
+                e, 15,
+            )
+            time.sleep(15)
 
 
 def _gist_lease_lock_release():
@@ -3108,9 +3150,11 @@ async def main():
         _conn_watchdog_task.cancel()
         _instance_lock_release()
         await _set_bio(client, "offline")
-        if not _RESCAN_PENDING:
+        if not _RESCAN_PENDING and _gist_lock_mine():
             await auth_state.save_creds()
             _save_auth_snapshot()
+        else:
+            log.warning("skip push snapshot: lease gist bukan milik kita / rescan pending.")
         lease_stop.set()
         lease_task.cancel()
         try:
