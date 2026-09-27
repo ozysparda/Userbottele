@@ -60,6 +60,14 @@ _LAST_DECRYPT_ERROR = 0.0 # monotonic; snapshot ditahan jika ada decrypt error b
 _LAST_DESYNC_NOTIF = 0.0  # monotonic; throttle notifikasi ke owner (1x/10 mnt)
 _RESTART_DEAD = None      # asyncio.Event milik main(); dipakai utk QR ulang in-process
 
+# Gist lease lock: single-instance GLOBAL (lintas mesin/runner) biar tak pernah
+# 2 bot cloud memakai session WA yg sama bersamaan -> penyebab desync.
+_GIST_LOCK_NAME = "_instance_lease.json"
+_GIST_LOCK_TTL = 480          # lease valid 8 menit; renew tiap 25 dtk
+_GIST_LOCK_RENEW_SECS = 25
+_GIST_INSTANCE_ID = os.environ.get("HOSTNAME", "local") + ":" + str(os.getpid())
+_GIST_LOCK_HELD = False       # True jika lease ini yg memegang
+
 _DEFAULT_OWNER = "6282235337915@s.whatsapp.net"
 
 CONFIG_FILENAME = "wabot_config.json"
@@ -421,6 +429,149 @@ def _fetch_auth_snapshot():
     except Exception as e:
         log.warning("gagal fetch snapshot auth: %s", e)
         return None
+
+
+def _gist_read_file_no(url: str) -> str | None:
+    """Baca content sebuah file di gist (raw fetch); None bila tak ada/gagal."""
+    if not GIST_TOKEN:
+        return None
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            url,
+            headers={"Authorization": f"token {GIST_TOKEN}",
+                     "Accept": "application/vnd.github+json",
+                     "User-Agent": "wabot"},
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode()).get("content")
+    except Exception as e:
+        log.warning("gist read %s gagal: %s", url.rsplit("/", 1)[-1], e)
+        return None
+
+
+def _gist_list_files() -> dict:
+    """Nama->{content} semua file di gist (utk cek lease lock)."""
+    if not GIST_TOKEN:
+        return {}
+    try:
+        import urllib.request
+        url = f"https://api.github.com/gists/{GIST_ID}"
+        req = urllib.request.Request(
+            url,
+            headers={"Authorization": f"token {GIST_TOKEN}",
+                     "Accept": "application/vnd.github+json",
+                     "User-Agent": "wabot"},
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            gist = json.loads(resp.read().decode())
+        return {k: (v or {}).get("content") for k, v in (gist.get("files") or {}).items()}
+    except Exception as e:
+        log.warning("gist list files gagal: %s", e)
+        return {}
+
+
+def _gist_patch(files: dict) -> bool:
+    """PATCH gist (tambah/ubah/hapus file). files = {name: {content} | None}."""
+    if not GIST_TOKEN:
+        return False
+    try:
+        import urllib.request
+        url = f"https://api.github.com/gists/{GIST_ID}"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps({"files": files}).encode("utf-8"),
+            headers={"Authorization": f"token {GIST_TOKEN}",
+                     "Accept": "application/vnd.github+json",
+                     "User-Agent": "wabot"},
+            method="PATCH",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            log.debug("gist patch status=%s files=%s", resp.status, list(files))
+            return True
+    except Exception as e:
+        log.warning("gist patch gagal (%s): %s", list(files), e)
+        return False
+
+
+def _gist_lock_heartbeat():
+    """Tulis timestamp 'last seen' pemegang lease ke gist (renew lease)."""
+    global _GIST_LOCK_HELD
+    if not _GIST_LOCK_HELD:
+        return False
+    ok = _gist_patch({_GIST_LOCK_NAME: {"content": json.dumps({"hb": int(time.time())})}})
+    return ok
+
+
+def _gist_lease_lock_acquire(timeout_s: float = 300.0) -> bool:
+    """Klaim lease lock GLOBAL di gist; tunggu hingga active lease kadaluarsa.
+
+    Lease = file `_instance_lease.json` berisi `hb` (epoch). Bila `hb` berumur
+    <8 mnt dianggap masih alive (proses lain / bekas run yg belum mati). Kita
+    renew tiap 25 dtk lewat _gist_lock_heartbeat. Jika proses itu crash, lease
+    kadaluarsa otomatis dalam 8 mnt -> yang lain boleh maju.
+    """
+    global _GIST_LOCK_HELD
+    if not GIST_TOKEN:
+        _GIST_LOCK_HELD = True  # tanpa gist (dev lokal) biarkan jalan
+        return True
+    deadline = time.monotonic() + timeout_s
+    while True:
+        if time.monotonic() > deadline:
+            log.error("lease lock gist tak bisa dipegang: ada instance lain masih hidup.")
+            return False
+        try:
+            files = _gist_list_files()
+            hb_raw = files.get(_GIST_LOCK_NAME)
+            active = None
+            if hb_raw:
+                try:
+                    active = int(json.loads(hb_raw).get("hb") or 0)
+                except Exception:
+                    active = None
+            now = int(time.time())
+            if active is not None and now - active < _GIST_LOCK_TTL:
+                log.info(
+                    "lease lock gist masih dipegang (suara %ds lalu); tunggu kadaluarsa 8 mnt...",
+                    now - active,
+                )
+                time.sleep(20)
+                continue
+            # Lease kosong/kadaluarsa -> tulis milik kita, lalu verifikasi tidak ada yang menimpa.
+            if not _gist_patch({_GIST_LOCK_NAME: {"content": json.dumps({"hb": now})}}):
+                time.sleep(10)
+                continue
+            files2 = _gist_list_files()
+            verify = None
+            if _GIST_LOCK_NAME in files2:
+                try:
+                    verify = int(json.loads(files2[_GIST_LOCK_NAME]).get("hb") or 0)
+                except Exception:
+                    pass
+            if verify is not None and (now - verify) < _GIST_LOCK_TTL and abs(verify - now) < 5:
+                _GIST_LOCK_HELD = True
+                log.info("lease lock gist dipegang (hb=%s).", now)
+                return True
+            time.sleep(10)
+        except Exception as e:
+            log.warning("lease lock gist error: %s (lanjut tanpa lock global)", e)
+            _GIST_LOCK_HELD = True
+            return True
+
+
+def _gist_lease_lock_release():
+    """Lepas lease lock global (hapus file dari gist)."""
+    global _GIST_LOCK_HELD
+    if not _GIST_LOCK_HELD:
+        return
+    _GIST_LOCK_HELD = False
+    if not GIST_TOKEN:
+        return
+    try:
+        _gist_patch({_GIST_LOCK_NAME: None})
+        log.info("lease lock gist dilepas.")
+    except Exception as e:
+        log.warning("gagal lepas lease lock gist: %s", e)
 
 
 # ==================== QR ====================
@@ -2728,10 +2879,29 @@ async def main():
     else:
         log.info("Rescan pending; tidak restore dari gist. Menunggu QR baru...")
 
-    # Guard single-instance: cegah 2 proses memakai session yg sama (penyebab desync).
+    # Guard single-instance LOKAL: cegah 2 proses di MESIN SAMA memakai session yg sama.
     if not _instance_lock_acquire():
-        log.error("Ada bot lain yg masih memakai session ini. Stop proses lain lalu coba lagi.")
+        log.error("Ada bot lain di mesin ini yg masih memakai session. Stop proses lain lalu coba lagi.")
         raise CleanExit(0)
+
+    # Guard lease lock GLOBAL (gist): cegah 2 bot cloud (mesin/runner berbeda)
+    # memakai session yg sama bersamaan — akar desync yg sebenarnya.
+    if not _gist_lease_lock_acquire(timeout_s=600):
+        _instance_lock_release()
+        log.error("Ada bot cloud lain yg masih hidup (lease gist aktif). Menolak start ganda.")
+        raise CleanExit(0)
+
+    lease_stop = asyncio.Event()
+
+    async def _lease_heartbeat():
+        while not lease_stop.is_set():
+            _gist_lock_heartbeat()
+            try:
+                await asyncio.wait_for(lease_stop.wait(), timeout=_GIST_LOCK_RENEW_SECS)
+            except asyncio.TimeoutError:
+                pass
+
+    lease_task = asyncio.create_task(_lease_heartbeat())
 
     client, auth_state = await WhatsAppClient.from_auth_folder(
         str(AUTH_DIR), store_path=str(CACHE_PATH)
@@ -2941,6 +3111,13 @@ async def main():
         if not _RESCAN_PENDING:
             await auth_state.save_creds()
             _save_auth_snapshot()
+        lease_stop.set()
+        lease_task.cancel()
+        try:
+            await lease_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        _gist_lease_lock_release()
         try:
             await client.disconnect()
         except Exception:
