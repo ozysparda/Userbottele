@@ -177,4 +177,9 @@ downloads/
 # WhatsApp userbot
 wabot/auth/
 wabot/*.sqlite3
+wabot/*.sqlite3-shm
+wabot/*.sqlite3-wal
+wabot/wa_qr.svg
+wabot/gist_body.json
+wabot/wa_auth.txt
 

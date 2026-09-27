@@ -52,6 +52,14 @@ PREFIX = "."
 _SELF_JID = ""
 _logged_once = set()
 
+# Guard anti desync: hanya SATU proses boleh memakai session yg sama.
+_INSTANCE_LOCK_FILE = AUTH_DIR / "_instance.lock"
+_RESCAN_PENDING = False   # sedang QR ulang -> jangan restore gist
+_SESSION_HEALTHY = False  # koneksi sudah open (snapshot boleh di-push)
+_LAST_DECRYPT_ERROR = 0.0 # monotonic; snapshot ditahan jika ada decrypt error baru
+_LAST_DESYNC_NOTIF = 0.0  # monotonic; throttle notifikasi ke owner (1x/10 mnt)
+_RESTART_DEAD = None      # asyncio.Event milik main(); dipakai utk QR ulang in-process
+
 _DEFAULT_OWNER = "6282235337915@s.whatsapp.net"
 
 CONFIG_FILENAME = "wabot_config.json"
@@ -243,7 +251,7 @@ def _auth_to_b64() -> str:
     import io
     files = {}
     for p in sorted(AUTH_DIR.rglob("*")):
-        if p.is_file():
+        if p.is_file() and p.name not in _SESSION_LOCK_EXCLUDE:
             rel = str(p.relative_to(AUTH_DIR)).replace("\\", "/")
             files[rel] = base64.b64encode(p.read_bytes()).decode()
     buf = io.BytesIO()
@@ -269,11 +277,112 @@ def _b64_to_auth(b64: str):
                 p.unlink()
 
 
+_SESSION_LOCK_EXCLUDE = {"_instance.lock"}
+
+_INSTANCE_LOCK_FD = None  # fd/handle lock OS-native; None = belum dipegang
+
+
+def _instance_lock_acquire(timeout_s: float = 20.0) -> bool:
+    """Pegang lock single-instance pakai file lock OS-native (flock / msvcrt).
+
+    OS membebaskan lock OTOMATIS saat proses mati (tidak peduli PID reuse atau
+    crash), jadi dua proses wabot tidak pernah bisa memakai session yang sama
+    bersamaan — persis penyebab desync yang kita tangani.
+    """
+    global _INSTANCE_LOCK_FD
+    try:
+        _INSTANCE_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        deadline = time.monotonic() + timeout_s
+        while True:
+            if time.monotonic() > deadline:
+                log.error("instance lain masih memakai session; menolak start ganda.")
+                return False
+            try:
+                fd = os.open(str(_INSTANCE_LOCK_FILE), os.O_RDWR | os.O_CREAT, 0o644)
+            except Exception as e:
+                log.warning("buka lock file gagal: %s (fallback tanpa lock)", e)
+                return True
+            locked = False
+            try:
+                if os.name == "posix":
+                    import fcntl
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                else:
+                    import msvcrt
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                locked = True
+            except (OSError, BlockingIOError):
+                try:
+                    os.close(fd)
+                except Exception:
+                    pass
+            if locked:
+                _INSTANCE_LOCK_FD = fd
+                try:
+                    os.write(fd, json.dumps({
+                        "pid": os.getpid(),
+                        "hb": time.monotonic(),
+                    }).encode())
+                except Exception:
+                    pass
+                log.debug("instance lock dipegang (pid=%s)", os.getpid())
+                return True
+            log.info("instance lain masih memakai session; menunggu lock (%d dtk)...",
+                     int(deadline - time.monotonic()))
+            time.sleep(2)
+    except Exception as e:
+        log.warning("instance lock acquire error: %s (fallback tanpa lock)", e)
+        return True
+
+
+def _instance_lock_release():
+    global _INSTANCE_LOCK_FD
+    fd = _INSTANCE_LOCK_FD
+    if fd is None:
+        return
+    _INSTANCE_LOCK_FD = None
+    try:
+        if os.name == "posix":
+            import fcntl
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        else:
+            import msvcrt
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    except Exception as e:
+        log.debug("unlock error: %s", e)
+    try:
+        os.close(fd)
+    except Exception:
+        pass
+    try:
+        _INSTANCE_LOCK_FILE.unlink()
+    except Exception:
+        pass
+
+
 def _save_auth_snapshot(text: str | None = None):
-    """Simpan snapshot auth + config ke gist (opsional jika GIST_TOKEN)."""
+    """Simpan snapshot auth + config ke gist (opsional jika GIST_TOKEN).
+
+    Guard anti-desync: TIDAK menimpa gist jika session masih kosong (belum
+    ada creds) atau baru saja kena decrypt error (<5 menit) — menandakan
+    session dicurigai desync sehingga snapshot lama yang sehat tetap aman.
+    """
     if not GIST_TOKEN:
         return
+    if _RESCAN_PENDING:
+        log.debug("skip snapshot: sedang QR ulang (jangan timpa session sehat).")
+        return
     try:
+        if not (AUTH_DIR / "creds.json").exists():
+            log.warning("skip snapshot: belum ada creds (masih QR/login).")
+            return
+        if time.monotonic() - _LAST_DECRYPT_ERROR < 300:
+            log.warning(
+                "skip snapshot: ada decrypt error <5 mnt lalu (session dicurigai desync); snapshot lama dipertahankan."
+            )
+            return
         import urllib.request
         files = {"wa_auth.b64": {"content": text or _auth_to_b64()}}
         url = f"https://api.github.com/gists/{GIST_ID}"
@@ -647,6 +756,8 @@ async def _on_message(client, data):
         await _cmd_igusers(client, chat_jid, resolved_sender)
     elif cmd == "igunset":
         await _cmd_igunset(client, chat_jid, resolved_sender, arg)
+    elif cmd == "rescan":
+        await _cmd_rescan(client, chat_jid, resolved_sender)
     elif cmd:
         await client.send_text(chat_jid, f"❓ Perintah `.{cmd}` tak dikenal. Ketik `.help`.")
 
@@ -1193,6 +1304,39 @@ async def _cmd_igunset(client, chat_jid, sender_jid, arg):
         chat_jid,
         "🗑 Kredensial IG dihapus dari bot. Gunakan `.igset` lagi kalau mau.",
     )
+
+
+async def _cmd_rescan(client, chat_jid, sender_jid):
+    """QR ulang: hapus session signal, pertahankan config, lalu restart in-process."""
+    global _RESCAN_PENDING
+    if not _is_owner(sender_jid):
+        await client.send_text(chat_jid, "⛔ Khusus owner.")
+        return
+    await client.send_text(
+        chat_jid,
+        "🔄 QR ulang dimulai... session WA di-reset.\n"
+        "Scan QR baru yang muncul di terminal/log bot, lalu ketik `.ping` untuk verifikasi.",
+    )
+    _RESCAN_PENDING = True
+    _SESSION_HEALTHY = False
+    # Backup manual dulu ke path lokal (jangan sentuh gist lama yg sehat).
+    try:
+        snap_now = _auth_to_b64()
+        bak = AUTH_DIR.parent / "auth_rescan_backup.b64"
+        bak.write_text(snap_now, encoding="utf-8")
+        log.info("session lama di-backup ke %s", bak)
+    except Exception as e:
+        log.debug("rescan backup skip: %s", e)
+    # Hapus SEMUA file auth KECUALI config & state IG (session signal di-regenerasi).
+    preserve = {CONFIG_FILENAME, IG_WL_PATH.name, IG_CK_PATH.name}
+    for p in list(AUTH_DIR.rglob("*")):
+        if p.is_file() and p.name not in preserve:
+            try:
+                p.unlink()
+            except Exception:
+                pass
+    if _RESTART_DEAD is not None:
+        _RESTART_DEAD.set()
 
 
 async def _notify_owner(client, text: str):
@@ -2518,20 +2662,28 @@ _EXIT_AFTER_REBOOT = False
 
 
 async def main():
-    global _SELF_JID
+    global _SELF_JID, _RESCAN_PENDING, _RESTART_DEAD
     _setup_logger()
     from pyaileys import WhatsAppClient
 
     AUTH_DIR.mkdir(parents=True, exist_ok=True)
 
     # Coba pulihkan session dari gist (Actions boot baru).
-    snap = _fetch_auth_snapshot()
-    if snap and not (AUTH_DIR / "creds.json").exists():
-        try:
-            _b64_to_auth(snap)
-            log.info("Session dipulihkan dari snapshot gist.")
-        except Exception as e:
-            log.warning("Gagal restore snapshot: %s", e)
+    if not _RESCAN_PENDING:
+        snap = _fetch_auth_snapshot()
+        if snap and not (AUTH_DIR / "creds.json").exists():
+            try:
+                _b64_to_auth(snap)
+                log.info("Session dipulihkan dari snapshot gist.")
+            except Exception as e:
+                log.warning("Gagal restore snapshot: %s", e)
+    else:
+        log.info("Rescan pending; tidak restore dari gist. Menunggu QR baru...")
+
+    # Guard single-instance: cegah 2 proses memakai session yg sama (penyebab desync).
+    if not _instance_lock_acquire():
+        log.error("Ada bot lain yg masih memakai session ini. Stop proses lain lalu coba lagi.")
+        raise CleanExit(0)
 
     client, auth_state = await WhatsAppClient.from_auth_folder(
         str(AUTH_DIR), store_path=str(CACHE_PATH)
@@ -2558,6 +2710,9 @@ async def main():
         if update.connection:
             log.info("connection=%s is_new_login=%s", update.connection, update.is_new_login)
             if update.connection == "open":
+                global _SESSION_HEALTHY, _RESCAN_PENDING
+                _SESSION_HEALTHY = True
+                _RESCAN_PENDING = False
                 connected.set()
                 last_close[0] = 0.0
             elif update.connection == "close":
@@ -2565,7 +2720,8 @@ async def main():
 
     async def on_creds_update(_creds):
         try:
-            await auth_state.save_creds()
+            if not _RESCAN_PENDING:
+                await auth_state.save_creds()
         except Exception as e:
             log.warning("save creds: %s", e)
 
@@ -2621,6 +2777,32 @@ async def main():
     client.on("message.decrypted", _on_msg)
     client.on("stanza.notification", _on_stanza_notif)
 
+    async def _on_decrypt_error(info):
+        try:
+            global _LAST_DECRYPT_ERROR, _LAST_DESYNC_NOTIF
+            err = (info or {}).get("error") or "?"
+            _LAST_DECRYPT_ERROR = time.monotonic()
+            log.warning(
+                "⚠️ DECRYPT ERROR jid=%s type=%s len=%s tried=%s err=%s",
+                info.get("jid"), info.get("type"), info.get("ciphertext_len"),
+                info.get("tried_jids"), err,
+            )
+            if "mac" in err.lower() or "signature" in err.lower():
+                # Throttle: jangan spam owner tiap pesan; max 1x/10 mnt.
+                now = time.monotonic()
+                if now - _LAST_DESYNC_NOTIF >= 600:
+                    _LAST_DESYNC_NOTIF = now
+                    await _notify_owner(
+                        client,
+                        "⚠️ *Session WhatsApp desync!*\n"
+                        f"Pesan masuk gagal didecrypt: `{err[:120]}`\n"
+                        "Solusi: `.rescan` (QR ulang) atau restart bot.",
+                    )
+        except Exception as e:
+            log.debug("decrypt-error handler err: %s", e)
+
+    client.on("message.decrypt_error", _on_decrypt_error)
+
     await client.connect()
 
     timeout = int(os.environ.get("WA_QR_TIMEOUT", "0")) or None
@@ -2655,6 +2837,8 @@ async def main():
 
     stop = asyncio.Event()
     dead = asyncio.Event()
+    global _RESTART_DEAD
+    _RESTART_DEAD = dead
 
     async def _sched_wrapper():
         try:
@@ -2704,9 +2888,11 @@ async def main():
         reboot_wait.cancel()
         dead_wait.cancel()
         _conn_watchdog_task.cancel()
+        _instance_lock_release()
         await _set_bio(client, "offline")
-        await auth_state.save_creds()
-        _save_auth_snapshot()
+        if not _RESCAN_PENDING:
+            await auth_state.save_creds()
+            _save_auth_snapshot()
         try:
             await client.disconnect()
         except Exception:
