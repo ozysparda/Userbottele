@@ -50,7 +50,7 @@ class IGClient:
     def available(self) -> bool:
         return _HAS_INSTALOADER
 
-    def login(self, username: str, session_id: str | None = None, session_file: str | None = None):
+    def login(self, username: str, session_id: str | None = None, session_file: str | None = None, cookies: dict | None = None):
         if not _HAS_INSTALOADER:
             raise IGError("instaloader belum terpasang di runner ini.")
         username = (username or "").strip().lower().lstrip("@")
@@ -61,13 +61,22 @@ class IGClient:
         try:
             if session_file and os.path.exists(session_file):
                 bot.load_session_from_file(username, session_file)
-            elif session_id:
-                bot.context._session.cookies.set("sessionid", str(session_id).strip(), domain=".instagram.com")
-                bot.context._session.cookies.set("csrftoken", "instagram", domain=".instagram.com")
-                bot.context._session.headers.update({"User-Agent": BROWSER_UA})
-                # get_profile dipanggil caller utk memverifikasi session.
             else:
-                raise IGError("Butuh sessionid atau path session file.")
+                cj = bot.context._session.cookies
+                if cookies:
+                    for k, v in cookies.items():
+                        if v:
+                            cj.set(str(k), str(v), domain=".instagram.com")
+                if not session_id:
+                    raise IGError("Lupa kirim sessionid.")
+                if session_id:
+                    cj.set("sessionid", str(session_id).strip(), domain=".instagram.com")
+                if "csrftoken" not in cj:
+                    cj.set("csrftoken", "instagram", domain=".instagram.com")
+                if "ig_did" not in cj:
+                    import uuid
+                    cj.set("ig_did", str(uuid.uuid4()), domain=".instagram.com")
+                bot.context._session.headers.update({"User-Agent": BROWSER_UA})
         except IGError:
             raise
         except Exception as e:
@@ -91,9 +100,13 @@ class IGClient:
                 time.sleep(wait if i < tries - 1 else 1)
         raise IGError(f"IG gagal setelah retry: {last}")
 
+    def followers(self) -> set:
+        profile = self._profile()
+        return self._retry(lambda: {f.username for f in profile.get_followers()}, wait=120)
+
     def counts(self):
         profile = self._profile()
-        followers = self._retry(lambda: {f.username for f in profile.get_followers()}, wait=120)
+        followers = self.followers()
         following = self._retry(lambda: {f.username for f in profile.get_followees()}, wait=120)
         not_following = sorted(following - followers)
         wl = set(self.load_whitelist())
@@ -104,6 +117,34 @@ class IGClient:
             "not_following": not_following,
             "safe_count": len([u for u in not_following if u not in wl]),
             "whitelist": sorted(wl),
+        }
+
+    def checkpoint(self, ck_path: str | Path) -> dict:
+        ck_path = Path(ck_path)
+        ck_path.parent.mkdir(parents=True, exist_ok=True)
+        users = sorted(self.followers())
+        data = {"username": self._username, "ts": int(time.time()), "followers": users}
+        ck_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        return data
+
+    def unfollowed_since(self, ck_path: str | Path) -> dict:
+        ck_path = Path(ck_path)
+        if not ck_path.exists():
+            return {}
+        try:
+            data = json.loads(ck_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        ck_followers = set(data.get("followers") or [])
+        now = self.followers()
+        gone = sorted(ck_followers - now)
+        return {
+            "username": self._username,
+            "checkpoint_ts": int(data.get("ts") or 0),
+            "checkpoint_username": data.get("username"),
+            "current": len(now),
+            "at_checkpoint": len(ck_followers),
+            "unfollowed": gone,
         }
 
     def unfollow(self, usernames: list, progress=None):

@@ -78,7 +78,7 @@ def _load_config() -> dict:
             return cfg
     except Exception:
         pass
-    return {"owner": "", "users": [], "groups": [], "schedules": [], "autoreply": {}}
+    return {"owner": "", "users": [], "groups": [], "schedules": [], "autoreply": {}, "ig_users": []}
 
 
 def _save_config(cfg: dict):
@@ -144,6 +144,15 @@ def _allowed(sender: str) -> bool:
         _jid_key(_norm_number(x)) for x in os.environ.get("WA_ALLOWED", "").split(",") if x.strip()
     )
     return _jid_key(sender) in legacy
+
+
+def _ig_allowed(sender: str) -> bool:
+    """Akses command IG: owner ATAU daftar khusus ig_users (di-grant owner via .igallow)."""
+    if _is_owner(sender):
+        return True
+    cfg = _load_config()
+    ig_users = set(_jid_key(x) for x in cfg.get("ig_users", []))
+    return _jid_key(sender) in ig_users
 
 
 def _group_ok(chat_jid: str) -> bool:
@@ -628,6 +637,16 @@ async def _on_message(client, data):
         await _cmd_igset(client, chat_jid, resolved_sender, arg)
     elif cmd in ("igwl", "igwhitelist"):
         await _cmd_igwl(client, chat_jid, resolved_sender, arg)
+    elif cmd in ("igck", "igcheckpoint"):
+        await _cmd_igcheckpoint(client, chat_jid, resolved_sender, arg)
+    elif cmd == "igallow":
+        await _cmd_igallow(client, chat_jid, resolved_sender, arg)
+    elif cmd == "igrevoke":
+        await _cmd_igrevoke(client, chat_jid, resolved_sender, arg)
+    elif cmd == "igusers":
+        await _cmd_igusers(client, chat_jid, resolved_sender)
+    elif cmd == "igunset":
+        await _cmd_igunset(client, chat_jid, resolved_sender, arg)
     elif cmd:
         await client.send_text(chat_jid, f"❓ Perintah `.{cmd}` tak dikenal. Ketik `.help`.")
 
@@ -709,6 +728,11 @@ def _help_text(is_owner: bool) -> str:
             "`.unfoll` — dry-run daftar akun tak follow balik",
             "`.unfoll run` — eksekusi unfollow (khusus owner)",
             "`.igwl add|del|list <user>` — kelola whitelist IG",
+            "`.igcheckpoint` — simpan checkpoint follower (untuk pantau yg unfollow)",
+            "`.igallow <nomor>` — konfirmasi beri akses IG (double-verif)",
+            "`.igrevoke <nomor>` — cabut akses IG",
+            "`.igusers` — daftar yg punya akses IG",
+            "`.igunset` — hapus kredensial IG dari bot",
         ]
     return "\n".join(lines)
 
@@ -829,6 +853,7 @@ async def _cmd_rem(client, chat_jid, sender_jid, arg):
 # ==================== IG USERBOT ====================
 
 IG_WL_PATH = AUTH_DIR / "ig_whitelist.json"
+IG_CK_PATH = AUTH_DIR / "ig_checkpoint.json"
 
 
 def _load_ig():
@@ -840,7 +865,12 @@ def _load_ig():
     ig = IGClient(whitelist_path=IG_WL_PATH)
     if username and sessionid:
         try:
-            ig.login(username, session_id=sessionid)
+            cookies = {
+                "ds_user_id": cfg.get("ds_user_id"),
+                "csrftoken": cfg.get("csrftoken"),
+                "ig_did": cfg.get("ig_did"),
+            }
+            ig.login(username, session_id=sessionid, cookies=cookies)
         except Exception as e:
             log.warning("ig.login gagal: %s", e)
     return ig
@@ -854,9 +884,12 @@ async def _cmd_igset(client, chat_jid, sender_jid, arg):
     if len(parts) < 2:
         await client.send_text(
             chat_jid,
-            "ℹ️ `.igset <username> <sessionid>`\n"
-            "\nAmbil `sessionid` dari cookie IG (browser/instaloader).\n"
-            "Disimpan di config yg ikut snapshot backup.",
+            "ℹ️ `.igset <username> <sessionid> [ds_user_id] [csrftoken]`\n"
+            "\nCara ambil (di HP/PC, sudah login IG):\n"
+            "1. Buka instagram.com → DevTools (F12) → tab Application\n"
+            "2. Di kolom kiri: Storage → Cookies → https://www.instagram.com\n"
+            "3. Cari dan salin nilai `sessionid`, `ds_user_id`, `csrftoken`\n\n"
+            "Contoh: `.igset kamu 1234%3Aabc 567890 key`",
         )
         return
     username = (parts[0] or "").strip().lower().lstrip("@")
@@ -865,14 +898,27 @@ async def _cmd_igset(client, chat_jid, sender_jid, arg):
         await client.send_text(chat_jid, "ℹ️ `.igset <username> <sessionid>`")
         return
     cfg = _load_config()
-    cfg["ig"] = {"username": username, "sessionid": sessionid}
+    cfg["ig"] = {
+        "username": username,
+        "sessionid": sessionid,
+        "ds_user_id": parts[2].strip() if len(parts) > 2 else "",
+        "csrftoken": parts[3].strip() if len(parts) > 3 else "",
+    }
     _save_config(cfg)
     _save_auth_snapshot()
-    await client.send_text(chat_jid, f"✅ IG `@{username}` tersimpan.")
+    await client.send_text(
+        chat_jid,
+        f"✅ IG `@{username}` tersimpan.\nGunakan `.igstats` untuk tes koneksi.",
+    )
+    await _notify_owner(
+        client,
+        f"🔑 *Session IG diterima*\n👤 @{username}\nStatus: tersimpan & siap dipakai.\n"
+        f"Tes koneksi: kirim `.igstats`.",
+    )
 
 
 async def _cmd_igstats(client, chat_jid, sender_jid, arg):
-    if not _is_owner(sender_jid):
+    if not _ig_allowed(sender_jid):
         await client.send_text(chat_jid, "⛔ Khusus owner.")
         return
     ig = _load_ig()
@@ -883,6 +929,7 @@ async def _cmd_igstats(client, chat_jid, sender_jid, arg):
     loop = asyncio.get_running_loop()
     try:
         stat = await loop.run_in_executor(None, ig.counts)
+        diff = await loop.run_in_executor(None, ig.unfollowed_since, IG_CK_PATH)
     except Exception as e:
         await client.send_text(chat_jid, f"⚠️ Gagal ambil statistik: {str(e)[:250]}")
         return
@@ -897,6 +944,27 @@ async def _cmd_igstats(client, chat_jid, sender_jid, arg):
         f"🛡 Whitelisted: {len(stat['whitelist'])}",
         f"⚡ Siap di-unfollow: {len(safe)}",
     ]
+    if diff:
+        gone = diff["unfollowed"]
+        if gone:
+            from datetime import datetime
+
+            ts = datetime.fromtimestamp(diff["checkpoint_ts"]).strftime("%d/%m %H:%M")
+            lines.append("")
+            lines.append(
+                f"🚩 *YANG UNFOLLOW KAMU* sejak checkpoint {ts} ({len(gone)}):"
+            )
+            wl = set(stat["whitelist"])
+            for u in gone[:30]:
+                lines.append(f"   • {'🛡' if u in wl else '👋'} @{u}")
+            if len(gone) > 30:
+                lines.append(f"   …dan {len(gone)-30} lagi")
+        else:
+            lines.append("")
+            lines.append("✅ Gak ada yang unfollow sejak checkpoint terakhir.")
+    else:
+        lines.append("")
+        lines.append("ℹ️ Belum ada checkpoint. Pasang di `.igcheckpoint` buat pantau siapa yg unfollow.")
     if nf:
         lines.append("")
         lines.append("Tak follow balik (15):")
@@ -906,7 +974,7 @@ async def _cmd_igstats(client, chat_jid, sender_jid, arg):
 
 
 async def _cmd_unfoll(client, chat_jid, sender_jid, arg):
-    if not _is_owner(sender_jid):
+    if not _ig_allowed(sender_jid):
         await client.send_text(chat_jid, "⛔ Khusus owner.")
         return
     ig = _load_ig()
@@ -961,7 +1029,7 @@ async def _cmd_unfoll(client, chat_jid, sender_jid, arg):
 
 
 async def _cmd_igwl(client, chat_jid, sender_jid, arg):
-    if not _is_owner(sender_jid):
+    if not _ig_allowed(sender_jid):
         await client.send_text(chat_jid, "⛔ Khusus owner.")
         return
     ig = _load_ig()
@@ -1000,6 +1068,189 @@ async def _cmd_igwl(client, chat_jid, sender_jid, arg):
             chat_jid,
             f"*IG Whitelist ({len(wl)})*\n" + "\n".join(f"• @{u}" for u in sorted(wl)),
         )
+
+
+async def _cmd_igcheckpoint(client, chat_jid, sender_jid, arg):
+    if not _ig_allowed(sender_jid):
+        await client.send_text(chat_jid, "⛔ Khusus owner.")
+        return
+    ig = _load_ig()
+    if not ig.available:
+        await client.send_text(chat_jid, "⚠️ instaloader tak tersedia di runner ini.")
+        return
+    await client.send_text(chat_jid, "⏳ Ambil daftar follower utk checkpoint... (bisa lama)")
+    loop = asyncio.get_running_loop()
+    try:
+        data = await loop.run_in_executor(None, ig.checkpoint, IG_CK_PATH)
+    except Exception as e:
+        await client.send_text(chat_jid, f"⚠️ Gagal bikin checkpoint: {str(e)[:250]}")
+        return
+    from datetime import datetime
+
+    ts = datetime.fromtimestamp(data["ts"]).strftime("%d/%m %H:%M")
+    _save_auth_snapshot()
+    await client.send_text(
+        chat_jid,
+        f"📸 *Checkpoint dibuat* {ts}\n"
+        f"👤 @{data['username']}\n"
+        f"📥 Follower tersimpan: {len(data['followers'])}\n\n"
+        f"Setiap `.igstats`, bot bakal laporin siapa yg unfollow kamu sejak ini.",
+    )
+
+
+async def _cmd_igallow(client, chat_jid, sender_jid, arg):
+    if not _is_owner(sender_jid):
+        await client.send_text(chat_jid, "⛔ Khusus owner.")
+        return
+    parts = (arg or "").strip().split()
+    jid = _norm_number(parts[-1] if parts else "")
+    ans = (parts[0] if parts else "").lower()
+    if not jid:
+        await client.send_text(chat_jid, "ℹ️ `.igallow <nomor>` lalu konfirmasi ya/tidak.")
+        return
+    cfg = _load_config()
+    ig_users = list(cfg.get("ig_users", []))
+    already = _jid_key(jid) in set(_jid_key(x) for x in ig_users)
+    if ans in ("ya", "yes", "y", "setuju", "oke"):
+        if already:
+            await client.send_text(chat_jid, f"ℹ️ `{jid}` sudah punya akses IG.")
+            return
+        ig_users.append(jid)
+        cfg["ig_users"] = ig_users
+        _save_config(cfg)
+        _save_auth_snapshot()
+        await client.send_text(
+            chat_jid, f"✅ *Akses IG diberikan* ke `{jid}`.\nBisa pakai `.igstats` & `.unfoll`."
+        )
+        try:
+            await client.send_text(
+                jid,
+                "🎉 *Akses IG aktif!*\n"
+                "Kamu sekarang bisa pakai perintah IG:\n"
+                "`.igstats` — statistik\n"
+                "`.unfoll` / `.unfoll run` — unfollow yg tak follow balik\n"
+                "`.igwl list` — lihat whitelist",
+            )
+        except Exception as e:
+            log.warning("notif igallow ke %s gagal: %s", jid, e)
+        return
+    if ans in ("tidak", "no", "n", "batal", "cancel"):
+        await client.send_text(chat_jid, f"ℹ️ Batal — `{jid}` tak diberi akses IG.")
+        return
+    await client.send_text(
+        chat_jid,
+        f"⚖️ *Double-verifikasi: beri akses IG ke `{jid}`?*\n\n"
+        f"➡️ Balas `.igallow ya {jid}` utk SETUJU\n"
+        f"➡️ Balas `.igallow tidak {jid}` utk TOLAK\n"
+        f"\n(akses WA biasa tak berpengaruh; yang ini khusus command IG)",
+    )
+
+
+async def _cmd_igrevoke(client, chat_jid, sender_jid, arg):
+    if not _is_owner(sender_jid):
+        await client.send_text(chat_jid, "⛔ Khusus owner.")
+        return
+    jid = _norm_number((arg or "").strip())
+    if not jid:
+        await client.send_text(chat_jid, "ℹ️ `.igrevoke <nomor>`")
+        return
+    cfg = _load_config()
+    key = _jid_key(jid)
+    ig_users = [x for x in cfg.get("ig_users", []) if _jid_key(x) != key]
+    cfg["ig_users"] = ig_users
+    _save_config(cfg)
+    _save_auth_snapshot()
+    await client.send_text(chat_jid, f"🗑 Akses IG `{jid}` dan koneksi IG its use dicabut.")
+
+
+async def _cmd_igusers(client, chat_jid, sender_jid):
+    if not _is_owner(sender_jid):
+        await client.send_text(chat_jid, "⛔ Khusus owner.")
+        return
+    cfg = _load_config()
+    ig_users = cfg.get("ig_users", []) or []
+    if not ig_users:
+        await client.send_text(chat_jid, "ℹ️ Belum ada yg punya akses IG. `.igallow <nomor>`")
+        return
+    await client.send_text(
+        chat_jid,
+        f"*Akses IG ({len(ig_users)})*\n" + "\n".join(f"• {x}" for x in ig_users),
+    )
+
+
+async def _cmd_igunset(client, chat_jid, sender_jid, arg):
+    if not _is_owner(sender_jid):
+        await client.send_text(chat_jid, "⛔ Khusus owner.")
+        return
+    cfg = _load_config()
+    if not (cfg.get("ig") or {}).get("sessionid"):
+        await client.send_text(chat_jid, "ℹ️ Belum ada session IG.")
+        return
+    cfg.pop("ig", None)
+    _save_config(cfg)
+    _save_auth_snapshot()
+    await client.send_text(
+        chat_jid,
+        "🗑 Kredensial IG dihapus dari bot. Gunakan `.igset` lagi kalau mau.",
+    )
+
+
+async def _notify_owner(client, text: str):
+    try:
+        await client.send_text(_owner(), text)
+    except Exception as e:
+        log.warning("notif owner gagal: %s", e)
+
+
+async def _ig_monitor_loop(client, stop: asyncio.Event):
+    """Cek berkala: siapa yg unfollow sejak checkpoint; spam-lapor ke owner."""
+    last_report: dict[str, int] = {}
+    interval = int(os.environ.get("IG_MONITOR_MINUTES", "60")) * 60
+    while not stop.is_set():
+        try:
+            cfg = _load_config()
+            if not (cfg.get("ig") or {}).get("sessionid"):
+                # belum ada session IG; tunggu tanpa kerja.
+                await asyncio.sleep(interval)
+                continue
+            ig = _load_ig()
+            if not ig.available or not IG_CK_PATH.exists():
+                await asyncio.sleep(interval)
+                continue
+            loop = asyncio.get_running_loop()
+            diff = await loop.run_in_executor(None, ig.unfollowed_since, IG_CK_PATH)
+            gone = diff.get("unfollowed") or []
+            if not gone:
+                await asyncio.sleep(interval)
+                continue
+            _save_auth_snapshot()
+            fresh = [u for u in gone if (last_report.get(u) or 0) < diff["checkpoint_ts"]]
+            if not fresh:
+                await asyncio.sleep(interval)
+                continue
+            now_ts = int(time.time())
+            for u in gone:
+                last_report[u] = now_ts
+            wl = set(ig.load_whitelist())
+            shown = "\n".join(
+                f"   • {'🛡' if u in wl else '👋'} @{u}" for u in fresh[:25]
+            )
+            if len(fresh) > 25:
+                shown += f"\n   …dan {len(fresh)-25} lagi"
+            from datetime import datetime
+
+            ts = datetime.fromtimestamp(diff["checkpoint_ts"]).strftime("%d/%m %H:%M")
+            await _notify_owner(
+                client,
+                f"🚩 *{len(fresh)} orang unfollow kamu!*\n"
+                f"(sejak checkpoint {ts})\n\n{shown}",
+            )
+        except Exception as e:
+            log.warning("ig monitor err: %s", e)
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=interval)
+        except asyncio.TimeoutError:
+            pass
 
 
 async def _cmd_users(client, chat_jid, sender_jid):
@@ -2421,9 +2672,18 @@ async def main():
         except BaseException as e:
             log.exception("reboot scheduler crash (%s); lanjut tanpa reboot...", e)
 
+    async def _ig_wrapper():
+        try:
+            await _ig_monitor_loop(client, stop)
+        except asyncio.CancelledError:
+            raise
+        except BaseException as e:
+            log.exception("ig monitor crash (%s); lanjut tanpa monitor...", e)
+
     _conn_watchdog_task = asyncio.create_task(_conn_watchdog())
     asyncio.create_task(_sched_wrapper())
     asyncio.create_task(_reboot_wrapper())
+    asyncio.create_task(_ig_wrapper())
 
     idle_wait = asyncio.create_task(asyncio.Event().wait())
 
