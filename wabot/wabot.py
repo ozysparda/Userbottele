@@ -987,6 +987,60 @@ def _load_ig():
     return ig
 
 
+class _ThreadProgress:
+    """Progress callback dari thread executor → antrian, di-drain oleh async side."""
+    def __init__(self, q):
+        self.q = q
+
+    def __call__(self, line):
+        try:
+            self.q.put(line)
+        except Exception:
+            pass
+
+
+async def _ig_beating(client, chat_jid, fn, label="proses IG"):
+    """Jalankan fn(yg menerima progress) di executor; kirim progress + keep-alive tiap ~25 dtk."""
+    import queue
+
+    q = queue.Queue()
+    loop = asyncio.get_running_loop()
+    slow = int(os.environ.get("IG_BEAT_SECS", "25"))
+    start = time.monotonic()
+    task = loop.run_in_executor(None, fn, _ThreadProgress(q))
+
+    async def _drain():
+        lines = []
+        try:
+            while True:
+                line = q.get_nowait()
+                if line:
+                    lines.append(line)
+        except Exception:
+            pass
+        if lines:
+            try:
+                await client.send_text(chat_jid, "\n".join(lines))
+            except Exception:
+                pass
+
+    while not task.done():
+        await _drain()
+        if time.monotonic() - start >= slow:
+            await client.send_text(
+                chat_jid,
+                f"💤 {label} masih jalan ({int(time.monotonic() - start)} dtk)… biarkan bot bekerja.",
+            )
+            start = time.monotonic()
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+            break
+        except asyncio.TimeoutError:
+            pass
+    await _drain()
+    return task.result()
+
+
 async def _cmd_igset(client, chat_jid, sender_jid, arg):
     if not _is_owner(sender_jid):
         await client.send_text(chat_jid, "⛔ Khusus owner.")
@@ -1037,10 +1091,11 @@ async def _cmd_igstats(client, chat_jid, sender_jid, arg):
         await client.send_text(chat_jid, "⚠️ instaloader tak tersedia di runner ini.")
         return
     await client.send_text(chat_jid, "⏳ Ambil data IG... (bisa lama)")
-    loop = asyncio.get_running_loop()
     try:
-        stat = await loop.run_in_executor(None, ig.counts)
-        diff = await loop.run_in_executor(None, ig.unfollowed_since, IG_CK_PATH)
+        stat = await _ig_beating(client, chat_jid, ig.counts, "statistik IG")
+        diff = await _ig_beating(
+            client, chat_jid, lambda prog: ig.unfollowed_since(IG_CK_PATH, prog), "pantau unfollow"
+        )
     except Exception as e:
         await client.send_text(chat_jid, f"⚠️ Gagal ambil statistik: {str(e)[:250]}")
         return
@@ -1098,9 +1153,8 @@ async def _cmd_unfoll(client, chat_jid, sender_jid, arg):
         "⏳ Ambil data IG... (bisa lama)"
         + (" — DRY, tak ada yg di-unfollow" if dry else " — LANGKAH SUNGGAH"),
     )
-    loop = asyncio.get_running_loop()
     try:
-        stat = await loop.run_in_executor(None, ig.counts)
+        stat = await _ig_beating(client, chat_jid, ig.counts, "analisis IG")
     except Exception as e:
         await client.send_text(chat_jid, f"⚠️ Gagal ambil data: {str(e)[:250]}")
         return
@@ -1122,18 +1176,13 @@ async def _cmd_unfoll(client, chat_jid, sender_jid, arg):
 
     await client.send_text(chat_jid, f"🚀 Unfollow {len(targets)} akun (delay ±5 dtk/akun)...")
 
-    def run():
-        def prog(line):
-            loop.call_soon_threadsafe(
-                asyncio.ensure_future,
-                client.send_text(chat_jid, line),
-            )
-            return True
-
-        return ig.unfollow(targets, progress=prog)
+    def run(progress=None):
+        if progress:
+            progress(f"🚀 Mulai unfollow {len(targets)} akun…")
+        return ig.unfollow(targets, progress=progress)
 
     try:
-        done = await loop.run_in_executor(None, run)
+        done = await _ig_beating(client, chat_jid, run, "unfollow IG")
         await client.send_text(chat_jid, f"✅ Selesai: {done}/{len(targets)} akun di-unfollow.")
     except Exception as e:
         await client.send_text(chat_jid, f"⚠️ Gagal saat unfollow: {str(e)[:250]}")
@@ -1190,9 +1239,8 @@ async def _cmd_igcheckpoint(client, chat_jid, sender_jid, arg):
         await client.send_text(chat_jid, "⚠️ instaloader tak tersedia di runner ini.")
         return
     await client.send_text(chat_jid, "⏳ Ambil daftar follower utk checkpoint... (bisa lama)")
-    loop = asyncio.get_running_loop()
     try:
-        data = await loop.run_in_executor(None, ig.checkpoint, IG_CK_PATH)
+        data = await _ig_beating(client, chat_jid, lambda prog: ig.checkpoint(IG_CK_PATH, prog), "checkpoint IG")
     except Exception as e:
         await client.send_text(chat_jid, f"⚠️ Gagal bikin checkpoint: {str(e)[:250]}")
         return

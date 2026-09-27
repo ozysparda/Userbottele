@@ -100,14 +100,22 @@ class IGClient:
                 time.sleep(wait if i < tries - 1 else 1)
         raise IGError(f"IG gagal setelah retry: {last}")
 
-    def followers(self) -> set:
+    def followers(self, progress=None) -> set:
+        if progress:
+            progress("📥 Muat daftar followers…")
         profile = self._profile()
         return self._retry(lambda: {f.username for f in profile.get_followers()}, wait=120)
 
-    def counts(self):
+    def counts(self, progress=None):
+        if progress:
+            progress("🔑 Ambil profil…")
         profile = self._profile()
-        followers = self.followers()
+        followers = self.followers(progress)
+        if progress:
+            progress("📤 Muat daftar following…")
         following = self._retry(lambda: {f.username for f in profile.get_followees()}, wait=120)
+        if progress:
+            progress("🧮 Hitung selisih & whitelist…")
         not_following = sorted(following - followers)
         wl = set(self.load_whitelist())
         return {
@@ -119,15 +127,17 @@ class IGClient:
             "whitelist": sorted(wl),
         }
 
-    def checkpoint(self, ck_path: str | Path) -> dict:
+    def checkpoint(self, ck_path: str | Path, progress=None) -> dict:
         ck_path = Path(ck_path)
         ck_path.parent.mkdir(parents=True, exist_ok=True)
-        users = sorted(self.followers())
+        users = sorted(self.followers(progress))
+        if progress:
+            progress("💾 Tulis checkpoint…")
         data = {"username": self._username, "ts": int(time.time()), "followers": users}
         ck_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         return data
 
-    def unfollowed_since(self, ck_path: str | Path) -> dict:
+    def unfollowed_since(self, ck_path: str | Path, progress=None) -> dict:
         ck_path = Path(ck_path)
         if not ck_path.exists():
             return {}
@@ -136,7 +146,9 @@ class IGClient:
         except Exception:
             return {}
         ck_followers = set(data.get("followers") or [])
-        now = self.followers()
+        now = self.followers(progress)
+        if progress:
+            progress("🧮 Bandingkan dgn checkpoint…")
         gone = sorted(ck_followers - now)
         return {
             "username": self._username,
