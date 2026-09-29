@@ -261,6 +261,9 @@ def _auth_to_b64() -> str:
     for p in sorted(AUTH_DIR.rglob("*")):
         if p.is_file() and p.name not in _SESSION_LOCK_EXCLUDE:
             rel = str(p.relative_to(AUTH_DIR)).replace("\\", "/")
+            if any(sub in rel for sub in _AUTH_SNAPSHOT_DROP_SUBSTR):
+                log.info("snapshot cops drop file LID lama: %s", rel)
+                continue
             files[rel] = base64.b64encode(p.read_bytes()).decode()
     buf = io.BytesIO()
     with gzip.GzipFile(fileobj=buf, mode="wb", compresslevel=9, mtime=0) as f:
@@ -286,6 +289,12 @@ def _b64_to_auth(b64: str):
 
 
 _SESSION_LOCK_EXCLUDE = {"_instance.lock"}
+
+# File auth milik LID lama (era desync) yang TIDAK boleh ikut snapshot gist.
+# LID bot sekarang = 71756840710355:6@lid; file .53/.54 (156350130733251)
+# adalah session/identity dari device lama -> jika di-restore ulang akan
+# menyebabkan "signal MAC mismatch" di server WhatsApp.
+_AUTH_SNAPSHOT_DROP_SUBSTR = ("156350130733251",)
 
 _INSTANCE_LOCK_FD = None  # fd/handle lock OS-native; None = belum dipegang
 
